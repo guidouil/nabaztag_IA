@@ -1,0 +1,9 @@
+Nabaztag IA.app/
+.build/
+__pycache__/
+*.pyc
+*.dmg
+*.img.xz
+DerivedData/
+xcuserdata/
+*.xcuserstate

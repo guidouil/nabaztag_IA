@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>local.gui.nabaztag-ia</string>
+  <key>CFBundleName</key><string>Nabaztag IA</string>
+  <key>CFBundleDisplayName</key><string>Nabaztag IA</string>
+  <key>CFBundleExecutable</key><string>NabaztagIA</string>
+  <key>CFBundleIconFile</key><string>AppIcon.icns</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.9</string>
+  <key>CFBundleVersion</key><string>9</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Transcrire sur ce Mac les enregistrements du microphone du Nabaztag pour répondre à vos questions.</string>
+  <key>NSLocalNetworkUsageDescription</key><string>Se connecter par SSH au Nabaztag sur votre réseau Wi-Fi pour utiliser son microphone et son haut-parleur.</string>
+  <key>NSAppTransportSecurity</key><dict>
+    <key>NSAllowsLocalNetworking</key><true/>
+    <key>NSExceptionDomains</key><dict>
+      <key>127.0.0.1</key><dict><key>NSExceptionAllowsInsecureHTTPLoads</key><true/></dict>
+      <key>::1</key><dict><key>NSExceptionAllowsInsecureHTTPLoads</key><true/></dict>
+    </dict>
+  </dict>
+</dict></plist>
