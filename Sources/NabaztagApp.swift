@@ -25,6 +25,16 @@ func conversationPrompt(history: [ConversationEntry], question: String) -> Strin
     toujours selon la date locale de la ville. Le service ne fournit ni historique ni prévisions au-delà de six jours : explique cette limite si besoin.
     Si le lieu manque, si « ici » n'est pas établi, ou si une ville est ambiguë, demande la ville, le pays ou la région en texte normal.
     N'affirme pas que tu ne peux pas consulter la météo : l'application exécutera cette demande et fournira les données.
+    Tu disposes aussi d'un service d'actualités récentes géré par l'application. Pour demander les dernières infos,
+    un journal ou bulletin d'actualité, y compris une suite comme « et en France ? », n'utilise jamais ta mémoire.
+    Réponds exclusivement par ce JSON, sans autre texte ni bloc de code :
+    {"tool":"news","category":"all"}
+    category vaut "france" pour la France, "international" pour le monde, "technology" pour la haute technologie,
+    la tech ou le numérique, et "all" pour un bulletin général ou plusieurs catégories.
+    L'application récupère et lit les titres récents avec leur source et leur date. Ne fournis jamais d'URL.
+    Il s'agit de titres de presse, pas d'articles complets ni d'une recherche par sujet. Pour une demande de détails
+    absents des titres déjà fournis, explique cette limite et n'invente aucune information récente.
+    N'affirme pas que tu ne peux pas consulter les actualités : l'application exécutera cette demande.
 
     \(context)
 
@@ -42,6 +52,7 @@ func checkConversationPrompt() {
     assert(prompt.contains("question-2-fin") && prompt.contains("réponse-7-fin"))
     assert(prompt.contains("nouvelle-question"))
     assert(prompt.contains("\"tool\":\"weather\"") && prompt.contains("day_offset"))
+    assert(prompt.contains("\"tool\":\"news\"") && prompt.contains("\"technology\"") && prompt.contains("\"international\""))
 }
 
 @main

@@ -1,4 +1,4 @@
-# Nabaztag IA — application Mac 0.11
+# Nabaztag IA — application Mac 0.12
 
 Le lapin fournit le micro et le haut-parleur. Le Mac transcrit la parole localement, demande une réponse au fournisseur choisi, puis fait parler le lapin. ChatGPT via l'abonnement Codex est le choix initial.
 
@@ -24,6 +24,16 @@ Le lieu résolu est annoncé avec sa région et son pays. Pour un homonyme, pré
 Le service est appelé depuis le Mac, quel que soit le fournisseur IA choisi, sans changement du relais sur le lapin. Seul le nom du lieu et, lorsqu'il est connu, son pays sont envoyés au géocodeur ; le fournisseur météo reçoit ses coordonnées, pas la conversation ni l'audio. Aucun serveur supplémentaire, clé météo ou paquet Python n'est nécessaire. Les [conditions de l'API gratuite](https://open-meteo.com/en/terms) s'appliquent à cet usage personnel non commercial.
 
 Données météo : [Open-Meteo](https://open-meteo.com/). Géocodage : [GeoNames](https://www.geonames.org/), fourni via Open-Meteo. Attribution et licence : [Open-Meteo](https://open-meteo.com/en/licence), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+## Actualités France, internationales et high-tech
+
+Demander **« Quelles sont les dernières infos en France ? »**, **« Les actualités internationales »** ou **« Quoi de neuf en haute technologie ? »**. Le lapin lit jusqu'à trois titres de la catégorie demandée. **« Donne-moi les dernières nouvelles »** fournit un titre pour chacune des trois catégories.
+
+Les sources fixes sont les flux RSS de [France 24 — France](https://www.france24.com/fr/france/rss), du [Monde — International](https://www.lemonde.fr/international/rss_full.xml) et du [Monde — Technologies](https://www.lemonde.fr/technologies/rss_full.xml). La source et la date de publication de chaque titre sont annoncées ; les dates et heures sont exprimées dans le fuseau du Mac. Seuls les titres publiés au cours des 72 dernières heures sont retenus, triés du plus récent au plus ancien. Si aucun titre ne satisfait cette limite, le lapin le dit ; il ne présente pas un ancien article comme une nouvelle du jour.
+
+Les flux sont consultés à chaque demande depuis le Mac, quel que soit le fournisseur IA choisi, sans clé d'actualités, dépendance supplémentaire ni changement du relais sur le lapin. Les éditeurs reçoivent une requête pour leur flux fixe, sans la conversation ni l'audio. En cas de panne ou de données invalides, le lapin annonce l'échec sans inventer de nouvelles. Cette fonction lit les titres des flux ; elle ne consulte pas les articles complets et ne réalise pas de recherche générale sur le Web.
+
+Les [conditions d'utilisation des flux RSS du Monde](https://www.lemonde.fr/le-monde-et-vous/article/2025/07/14/les-flux-rss-du-monde-fr_5498778_3237.html) réservent leur usage à un cadre strictement personnel, non professionnel et non collectif.
 
 ## Ouvrir dans Xcode
 

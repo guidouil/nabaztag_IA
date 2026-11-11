@@ -7,8 +7,8 @@
   <key>CFBundleExecutable</key><string>NabaztagIA</string>
   <key>CFBundleIconFile</key><string>AppIcon.icns</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.11</string>
-  <key>CFBundleVersion</key><string>11</string>
+  <key>CFBundleShortVersionString</key><string>0.12</string>
+  <key>CFBundleVersion</key><string>12</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSpeechRecognitionUsageDescription</key><string>Transcrire sur ce Mac les enregistrements du microphone du Nabaztag pour répondre à vos questions.</string>

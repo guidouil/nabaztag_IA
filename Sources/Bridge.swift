@@ -66,18 +66,28 @@ enum Bridge {
     static func ask(_ prompt: String) async throws -> String {
         let answer = try await askProvider(prompt)
         do {
-            guard let query = try weatherQuery(answer) else { return answer }
-            return try await WeatherService.answer(query)
+            switch try serviceQuery(answer) {
+            case .weather(let query): return try await WeatherService.answer(query)
+            case .news(let query): return try await NewsService.answer(query)
+            case nil: return answer
+            }
         } catch is CancellationError {
             throw CancellationError()
         } catch let failure as WeatherService.Failure {
             return failure.message
+        } catch let failure as NewsService.Failure {
+            return failure.message
         } catch {
-            return "Je n’ai pas pu consulter la météo pour le moment. Précise la ville et le pays, ou réessaie dans un instant."
+            return "Je n’ai pas pu consulter le service demandé. Peux-tu reformuler ou réessayer dans un instant ?"
         }
     }
 
-    static func weatherQuery(_ answer: String) throws -> WeatherService.Query? {
+    enum ServiceQuery {
+        case weather(WeatherService.Query)
+        case news(NewsService.Query)
+    }
+
+    static func serviceQuery(_ answer: String) throws -> ServiceQuery? {
         var text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.hasPrefix("```json\n"), text.hasSuffix("```") {
             text = String(text.dropFirst(8).dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -86,14 +96,18 @@ enum Bridge {
         }
         let data = Data(text.utf8)
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            if text.contains("\"tool\""), text.localizedCaseInsensitiveContains("weather") {
-                throw Failure(message: "Demande météo invalide.")
+            if text.contains("\"tool\""),
+               text.localizedCaseInsensitiveContains("weather") || text.localizedCaseInsensitiveContains("news") {
+                throw Failure(message: "Demande de service invalide.")
             }
             return nil
         }
         guard let tool = object["tool"] else { return nil }
-        guard tool as? String == "weather" else { throw Failure(message: "Demande météo invalide.") }
-        return try JSONDecoder().decode(WeatherService.Query.self, from: data)
+        switch tool as? String {
+        case "weather": return .weather(try JSONDecoder().decode(WeatherService.Query.self, from: data))
+        case "news": return .news(try JSONDecoder().decode(NewsService.Query.self, from: data))
+        default: throw Failure(message: "Demande de service invalide.")
+        }
     }
 
     private static func askProvider(_ prompt: String) async throws -> String {

@@ -3,25 +3,40 @@ import Speech
 
 @main
 struct BridgeChecks {
-    static func checkWeatherRouting() throws {
+    static func checkServiceRouting() throws {
         func json(_ value: [String: Any]) throws -> String {
             String(decoding: try JSONSerialization.data(withJSONObject: value), as: UTF8.self)
         }
-        let plain = try Bridge.weatherQuery("Une réponse ordinaire.")
-        let ordinaryJSON = try Bridge.weatherQuery(json(["example": "JSON ordinaire"]))
+        let plain = try Bridge.serviceQuery("Une réponse ordinaire.")
+        let ordinaryJSON = try Bridge.serviceQuery(json(["example": "JSON ordinaire"]))
         assert(plain == nil && ordinaryJSON == nil)
         let command = try json(["tool": "weather", "location": "New York", "country_code": "US", "day_offset": NSNull()])
         for text in [command, "```json\n\(command)\n```", "```\n\(command)\n```"] {
-            let query = try Bridge.weatherQuery(text)
-            assert(query?.location == "New York" && query?.countryCode == "US" && query?.dayOffset == nil)
+            guard case .weather(let query) = try Bridge.serviceQuery(text) else { fatalError("Routage météo absent.") }
+            assert(query.location == "New York" && query.countryCode == "US" && query.dayOffset == nil)
         }
-        let tomorrow = try Bridge.weatherQuery(json(["tool": "weather", "location": "Tokyo", "day_offset": 1]))
-        assert(tomorrow?.location == "Tokyo" && tomorrow?.dayOffset == 1)
+        guard case .weather(let tomorrow) = try Bridge.serviceQuery(json(["tool": "weather", "location": "Tokyo", "day_offset": 1])) else {
+            fatalError("Routage météo absent.")
+        }
+        assert(tomorrow.location == "Tokyo" && tomorrow.dayOffset == 1)
+        for category in NewsService.Category.allCases {
+            let news = try json(["tool": "news", "category": category.rawValue])
+            for text in [news, "```json\n\(news)\n```", "```\n\(news)\n```"] {
+                guard case .news(let query) = try Bridge.serviceQuery(text) else { fatalError("Routage actualités absent.") }
+                assert(query.category == category)
+            }
+        }
         for text in [String(command.dropLast()), try json(["tool": "weather"]),
                      "Voici la demande : \(command)", "```JSON\n\(command)\n```", "```json\n\(command)",
                      try json(["tool": "Weather", "location": "Paris"]), try json(["tool": 7]),
-                     try json(["tool": "weather", "location": "Paris", "day_offset": "tomorrow"])] {
-            do { _ = try Bridge.weatherQuery(text); assertionFailure("Une commande météo invalide ne doit pas être lue à voix haute.") }
+                     try json(["tool": "weather", "location": "Paris", "day_offset": "tomorrow"]),
+                     #"{"tool":"news","category":"france""#,
+                     try json(["tool": "news"]), try json(["tool": "news", "category": "politics"]),
+                     try json(["tool": "news", "category": NSNull()]),
+                     try json(["tool": "news", "category": ["france", "international"]]),
+                     try json(["tool": "News", "category": "all"]),
+                     #"Voici la demande : {"tool":"news","category":"all"}"#] {
+            do { _ = try Bridge.serviceQuery(text); assertionFailure("Une commande de service invalide ne doit pas être lue à voix haute.") }
             catch {}
         }
     }
@@ -221,7 +236,7 @@ struct BridgeChecks {
             print("Capture WAV : \(data.count) octets, 3 secondes.")
         default:
             try await checkCodex()
-            try checkWeatherRouting()
+            try checkServiceRouting()
             try await checkRemoteSessions()
             let text = Data("Texte français — `$(echo test)`\n".utf8)
             let result = try await Bridge.run("/bin/cat", [], input: text)
