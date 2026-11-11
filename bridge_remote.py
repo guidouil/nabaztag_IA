@@ -12,6 +12,7 @@ import platform
 import random
 import select
 import shlex
+import signal
 import socket
 import struct
 import subprocess
@@ -20,14 +21,19 @@ import tempfile
 import threading
 import time
 import wave
+from collections import deque
 from pathlib import Path
 
 
 DEVICE = "plughw:CARD=tagtagtagsound,DEV=0"
 MAX_AUDIO = 8 * 1024 * 1024
 MAX_STREAM_AUDIO = 90 * 24000 * 2
+MAX_STREAM_SEGMENTS = 2000
 STREAM_PACKET_TIMEOUT = 30
 STREAM_WALL_TIMEOUT = 150
+MAX_CAPTURE_SECONDS = 90
+THINK_WALL_TIMEOUT = 210
+THINK_CYCLE_TIMEOUT = 15
 DEFAULT_EFFECTS = ("small", "fixed", "002838")
 LIGHT_PALETTE = ((56, 8, 32), (64, 28, 0), (8, 56, 24),
                  (8, 24, 64), (40, 12, 56), (0, 40, 56))
@@ -37,9 +43,11 @@ def parse_action(command):
     args = shlex.split(command)
     if args[:2] == ["/usr/bin/python3", "/usr/local/lib/nabaztag-mac/bridge_remote.py"]:
         args = args[2:]
-    if args in (["diagnostic"], ["play"], ["play-animated"], ["watch-button"]):
+    if args in (["diagnostic"], ["play"], ["play-animated"], ["watch-button"], ["record-until-stop"]):
         return args[0], None
-    if len(args) == 4 and args[0] in ("play-animated", "play-stream"):
+    if len(args) == 2 and args[0] == "think" and args[1] in ("forward", "backward"):
+        return "think", args[1]
+    if len(args) == 4 and args[0] in ("play-animated", "play-stream", "play-queue"):
         ears, lights, color = args[1:]
         if ears in ("off", "small", "large") and lights in ("off", "fixed", "random") and \
                 len(color) == 6 and all(character in "0123456789abcdefABCDEF" for character in color):
@@ -48,7 +56,7 @@ def parse_action(command):
         duration = int(args[1])
         if 1 <= duration <= 15:
             return "record", duration
-    raise ValueError("Commandes autorisées : diagnostic, record N (1..15), play, play-animated, play-stream, watch-button")
+    raise ValueError("Commandes autorisées : diagnostic, record N (1..15), record-until-stop, think forward|backward, play, play-animated, play-stream, play-queue, watch-button")
 
 
 def validate_wav(data):
@@ -131,7 +139,8 @@ def watch_button():
 @contextlib.contextmanager
 def reserve():
     with socket.create_connection(("127.0.0.1", 10543), timeout=10) as sock:
-        with sock.makefile("rb") as stream:
+        # select() must see every remaining packet, including button events after the reservation ACK.
+        with sock.makefile("rb", buffering=0) as stream:
             deadline = time.monotonic() + 10
             while True:
                 packet = receive(sock, stream, deadline)
@@ -180,15 +189,16 @@ def write_beep(filename):
         ))
 
 
-def record(duration):
-    with reserve(), tempfile.TemporaryDirectory(prefix="nabaztag-mac-") as directory:
+def record(duration=None):
+    with reserve() as reservation, tempfile.TemporaryDirectory(prefix="nabaztag-mac-") as directory:
         filename = Path(directory) / "recording.wav"
         beep = Path(directory) / "ready.wav"
         write_beep(beep)
-        deadline = time.monotonic() + duration + 5
+        limit = MAX_CAPTURE_SECONDS if duration is None else duration
+        deadline = time.monotonic() + limit + 5
         capture = subprocess.Popen(
             ["arecord", "-q", "-D", DEVICE, "-t", "wav", "-f", "S16_LE",
-             "-r", "16000", "-c", "1", "-d", str(duration), str(filename)],
+             "-r", "16000", "-c", "1", "-d", str(limit), str(filename)],
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
         )
         try:
@@ -200,8 +210,32 @@ def record(duration):
                                                or "enregistrement terminé avant le signal"))
             run_audio(["aplay", "-q", "-D", DEVICE, str(beep)],
                       timeout=min(5, max(0.01, deadline - time.monotonic())))
+            stopped = False
+            if duration is None:
+                sock, stream = reservation
+                input_fd, control = sys.stdin.fileno(), b""
+                while capture.poll() is None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("Délai d’enregistrement dépassé")
+                    readable, _, _ = select.select([sock, input_fd], [], [], min(0.2, remaining))
+                    if input_fd in readable:
+                        data = os.read(input_fd, 64)
+                        if not data:
+                            raise ValueError("Enregistrement annulé : connexion fermée")
+                        control += data
+                        if not b"stop\n".startswith(control):
+                            raise ValueError("Commande d’arrêt d’enregistrement invalide")
+                        stopped = control == b"stop\n"
+                    if sock in readable:
+                        packet = receive(sock, stream, deadline)
+                        stopped = stopped or (packet.get("type") == "button_event" and packet.get("event") == "click")
+                    if stopped:
+                        capture.send_signal(signal.SIGINT)
+                        break
             _, error = capture.communicate(timeout=max(0.01, deadline - time.monotonic()))
-            if capture.returncode:
+            # arecord finalizes its WAV on SIGINT and normally returns EXIT_FAILURE (1).
+            if capture.returncode and not (stopped and capture.returncode == 1 and not error.strip()):
                 raise ValueError("arecord : " + error.decode("utf-8", "replace").strip())
         finally:
             if capture.poll() is None:
@@ -210,6 +244,50 @@ def record(duration):
         data = filename.read_bytes()
         validate_wav(data)
         sys.stdout.buffer.write(data)
+
+
+def thinking_choreography(direction):
+    first = 0 if direction == "forward" else 1
+    # Pynab: 17 relative steps make a full turn; opcode 19 waits for both motors.
+    choreography = bytes([0, 1, 10, 0, 20, 0, first, 0, 20, 1, 1 - first,
+                          0, 17, 0, 17, 0, 17, 1, 17, 0, 19])
+    return "data:application/x-nabaztag-mtl-choreography;base64," + base64.b64encode(choreography).decode("ascii")
+
+
+def think(direction):
+    deadline = time.monotonic() + THINK_WALL_TIMEOUT
+    choreography = thinking_choreography(direction)
+    with reserve() as (sock, stream):
+        stopping = False
+
+        def stop(signum, frame):
+            nonlocal stopping
+            stopping = True
+
+        handlers = {}
+        try:
+            for signum in (signal.SIGTERM, signal.SIGHUP):
+                handlers[signum] = signal.signal(signum, stop)
+            print("ready", flush=True)
+            input_fd = sys.stdin.fileno()
+            sequence = 0
+            while not stopping:
+                readable, _, _ = select.select([input_fd], [], [], 0)
+                if readable:
+                    if os.read(input_fd, 64):
+                        raise ValueError("La réflexion s’arrête en fermant son entrée")
+                    return
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("La réflexion a dépassé 210 secondes")
+                request_id = "mac-bridge-thinking-" + str(sequence)
+                send(sock, {"type": "command", "request_id": request_id, "cancelable": False,
+                            "sequence": [{"choreography": choreography}]})
+                # Finish the whole turn before releasing the reservation, preserving the resting position.
+                finish_ears(sock, stream, request_id, min(deadline, time.monotonic() + THINK_CYCLE_TIMEOUT))
+                sequence += 1
+        finally:
+            for signum, handler in handlers.items():
+                signal.signal(signum, handler)
 
 
 def response_choreography(duration, options=DEFAULT_EFFECTS, first_motor=0):
@@ -299,7 +377,7 @@ def play(data, animate=False, options=None):
                 print("Arrêt des oreilles : " + str(error), file=sys.stderr)
 
 
-def stream_play(input_stream, options=DEFAULT_EFFECTS):
+def stream_play(input_stream, options=DEFAULT_EFFECTS, queued=False):
     deadline = time.monotonic() + STREAM_WALL_TIMEOUT
     with reserve() as (sock, stream), tempfile.TemporaryFile() as errors:
         player = subprocess.Popen(
@@ -343,42 +421,73 @@ def stream_play(input_stream, options=DEFAULT_EFFECTS):
             os.set_blocking(output_fd, False)
             input_fd = input_stream.fileno()
             print("ready", flush=True)
-            total, pending = 0, b""
+            total, segment_count, pending, segments = 0, 0, bytearray(), deque()
+            expected = None
+            input_done, playing = False, not queued
             packet_deadline = time.monotonic() + STREAM_PACKET_TIMEOUT
-            while True:
+            write_deadline = packet_deadline
+            while not input_done or segments:
                 check_player()
-                remaining = min(deadline, packet_deadline) - time.monotonic()
-                if remaining <= 0:
+                now = time.monotonic()
+                if not input_done and now >= packet_deadline:
                     raise TimeoutError("Aucun paquet PCM reçu pendant 30 secondes")
-                readable, _, _ = select.select([input_fd], [], [], min(1, remaining))
-                if not readable:
-                    continue
-                data = os.read(input_fd, 16384)
-                if not data:
-                    if total == 0:
-                        raise ValueError("Le flux PCM est vide")
-                    if pending:
-                        raise ValueError("Le flux PCM contient une demi-trame de 16 bits")
-                    break
-                packet_deadline = time.monotonic() + STREAM_PACKET_TIMEOUT
-                total += len(data)
-                if total > MAX_STREAM_AUDIO:
-                    raise ValueError("Le flux PCM dépasse 90 secondes (4 320 000 octets)")
-                data = pending + data
-                even = len(data) - len(data) % 2
-                pending = data[even:]
-                data = memoryview(data)[:even]
-                write_deadline = time.monotonic() + STREAM_PACKET_TIMEOUT
-                while data:
-                    check_player()
-                    remaining = min(deadline, write_deadline) - time.monotonic()
-                    if remaining <= 0:
-                        raise TimeoutError("Le lecteur PCM ne consomme plus le flux")
-                    _, writable, _ = select.select([], [output_fd], [], min(1, remaining))
-                    if not writable:
-                        continue
+                if playing and segments and now >= write_deadline:
+                    raise TimeoutError("Le lecteur PCM ne consomme plus le flux")
+                remaining = min(deadline, packet_deadline if not input_done else deadline,
+                                write_deadline if playing and segments else deadline) - now
+                if remaining <= 0:
+                    raise TimeoutError("Le flux audio a dépassé 150 secondes")
+                had_output = playing and bool(segments)
+                readable, writable, _ = select.select(
+                    [] if input_done else [input_fd], [output_fd] if playing and segments else [], [],
+                    min(1, remaining))
+                if readable:
+                    data = os.read(input_fd, 16384)
+                    packet_deadline = time.monotonic() + STREAM_PACKET_TIMEOUT
+                    if not data:
+                        input_done = True
+                        if total == 0:
+                            raise ValueError("Le flux PCM est vide")
+                        if pending or expected is not None:
+                            raise ValueError("Segment PCM tronqué" if queued else "Le flux PCM contient une demi-trame de 16 bits")
+                    else:
+                        pending.extend(data)
+                        if queued:
+                            while True:
+                                if expected is None:
+                                    if len(pending) < 4:
+                                        break
+                                    expected = struct.unpack("!I", pending[:4])[0]
+                                    del pending[:4]
+                                    if not expected or expected % 2:
+                                        raise ValueError("Taille de segment PCM invalide")
+                                    segment_count += 1
+                                    if segment_count > MAX_STREAM_SEGMENTS:
+                                        raise ValueError("Trop de segments PCM")
+                                    total += expected
+                                    if total > MAX_STREAM_AUDIO:
+                                        raise ValueError("Le flux PCM dépasse 90 secondes (4 320 000 octets)")
+                                if len(pending) < expected:
+                                    break
+                                segments.append(memoryview(bytes(pending[:expected])))
+                                del pending[:expected]
+                                expected = None
+                        else:
+                            total += len(data)
+                            if total > MAX_STREAM_AUDIO:
+                                raise ValueError("Le flux PCM dépasse 90 secondes (4 320 000 octets)")
+                            even = len(pending) - len(pending) % 2
+                            if even:
+                                segments.append(memoryview(bytes(pending[:even])))
+                                del pending[:even]
+                    # Two complete segments give playback a head start; EOF releases short replies.
+                    if not playing and (len(segments) >= 2 or input_done):
+                        playing = True
+                    if not had_output and playing and segments:
+                        write_deadline = time.monotonic() + STREAM_PACKET_TIMEOUT
+                if writable:
                     try:
-                        written = os.write(output_fd, data)
+                        written = os.write(output_fd, segments[0])
                     except BlockingIOError:
                         continue
                     except BrokenPipeError:
@@ -387,13 +496,16 @@ def stream_play(input_stream, options=DEFAULT_EFFECTS):
                         raise
                     if written == 0:
                         raise ValueError("Écriture PCM interrompue")
-                    data = data[written:]
+                    segments[0] = segments[0][written:]
+                    if not segments[0]:
+                        segments.popleft()
+                    write_deadline = time.monotonic() + STREAM_PACKET_TIMEOUT
                     if worker is None and options[:2] != ("off", "off"):
                         worker = threading.Thread(target=animate, name="nabaztag-stream-effects", daemon=True)
                         worker.start()
             player.stdin.close()
             player.stdin = None
-            result = player.wait(timeout=max(0.01, min(10, deadline - time.monotonic())))
+            result = player.wait(timeout=max(0.01, min(total / 48000 + 5, deadline - time.monotonic())))
             if result:
                 errors.seek(0)
                 raise ValueError("aplay : " + errors.read(8192).decode("utf-8", "replace").strip())
@@ -468,12 +580,17 @@ def main():
         action, argument = parse_action(command)
         if action == "diagnostic":
             diagnostic()
-        elif action == "record":
+        elif action in ("record", "record-until-stop"):
             record(argument)
+        elif action == "think":
+            think(argument)
         elif action == "watch-button":
             watch_button()
-        elif action == "play-stream":
-            stream_play(sys.stdin.buffer, options=argument)
+        elif action in ("play-stream", "play-queue"):
+            if action == "play-queue":
+                stream_play(sys.stdin.buffer, options=argument, queued=True)
+            else:
+                stream_play(sys.stdin.buffer, options=argument)
         else:
             play(sys.stdin.buffer.read(MAX_AUDIO + 1), animate=action == "play-animated", options=argument)
         return 0
@@ -483,4 +600,9 @@ def main():
 
 
 if __name__ == "__main__":
+    def interrupt(signum, frame):
+        raise InterruptedError("Commande interrompue")
+
+    signal.signal(signal.SIGTERM, interrupt)
+    signal.signal(signal.SIGHUP, interrupt)
     sys.exit(main())

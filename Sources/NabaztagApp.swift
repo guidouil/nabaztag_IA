@@ -12,8 +12,19 @@ func conversationPrompt(history: [ConversationEntry], question: String) -> Strin
     }.joined(separator: "\n\n")
     return """
     Tu es l'assistant vocal d'un Nabaztag. Réponds en français, naturellement, en une à trois phrases.
-    Sois exact et signale une incertitude si nécessaire. Réponds uniquement par du texte à lire à voix haute.
-    N'utilise aucun outil et n'exécute aucune commande.
+    Date et heure actuelles : \(Date().ISO8601Format()), fuseau du Mac : \(TimeZone.current.identifier).
+    Sois exact et signale une incertitude si nécessaire. N'exécute aucune commande ni aucun outil externe.
+    Pour les questions ordinaires, réponds uniquement par du texte à lire à voix haute.
+    Tu disposes d'un service météo géré par l'application. Pour toute demande de météo actuelle ou de prévisions,
+    y compris la pluie, la température ou une suite comme « et demain ? », ne devine aucune donnée météo.
+    Réponds exclusivement par ce JSON, sans autre texte ni bloc de code :
+    {"tool":"weather","location":"ville ou ville, région","country_code":null,"day_offset":null}
+    location est le lieu demandé, ou celui clairement établi dans la conversation. country_code est un code ISO
+    à deux lettres si le pays est connu avec confiance, sinon null (sans guillemets). Ne fournis jamais d'URL ni de coordonnées.
+    day_offset vaut null pour maintenant, 0 pour les prévisions d'aujourd'hui, 1 pour demain, jusqu'à 6 pour le sixième jour,
+    toujours selon la date locale de la ville. Le service ne fournit ni historique ni prévisions au-delà de six jours : explique cette limite si besoin.
+    Si le lieu manque, si « ici » n'est pas établi, ou si une ville est ambiguë, demande la ville, le pays ou la région en texte normal.
+    N'affirme pas que tu ne peux pas consulter la météo : l'application exécutera cette demande et fournira les données.
 
     \(context)
 
@@ -30,6 +41,7 @@ func checkConversationPrompt() {
     assert(!prompt.contains("question-0-fin") && !prompt.contains("question-1-fin"))
     assert(prompt.contains("question-2-fin") && prompt.contains("réponse-7-fin"))
     assert(prompt.contains("nouvelle-question"))
+    assert(prompt.contains("\"tool\":\"weather\"") && prompt.contains("day_offset"))
 }
 
 @main
@@ -70,6 +82,8 @@ private struct ContentView: View {
     @State private var showingSettings = false
     @State private var showingConversation = false
     @State private var operationTask: Task<Void, Never>?
+    @State private var recording: Bridge.RemoteSession?
+    @State private var thinkingForward = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -95,19 +109,21 @@ private struct ContentView: View {
                         status = "Vérification terminée"
                     }
                 }
+                .disabled(busy)
                 Button("Tester la voix") {
                     run("Préparation et lecture du message de test…") {
                         try await Bridge.speak("Bonjour, je suis ton Nabaztag. Voici un aperçu de ma voix française, entièrement générée sur ton Mac.")
                         status = "Test de la voix terminé"
                     }
                 }
+                .disabled(busy)
                 Spacer()
-                Button("Parler — 6 secondes", systemImage: "mic.fill") {
+                Button(recording == nil ? "Parler" : "Arrêter l’enregistrement", systemImage: recording == nil ? "mic.fill" : "stop.fill") {
                     listen()
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(busy && recording == nil)
             }
-            .disabled(busy)
 
             HStack(spacing: 8) {
                 if busy { ProgressView().controlSize(.small) }
@@ -152,6 +168,14 @@ private struct ContentView: View {
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text("Vous : \(entry.question)").fontWeight(.medium)
                                     Text("Nabaztag : \(entry.answer)")
+                                    if entry.answer.contains("Open-Meteo") {
+                                        HStack(spacing: 8) {
+                                            Link("Open-Meteo", destination: URL(string: "https://open-meteo.com/")!)
+                                            Link("GeoNames", destination: URL(string: "https://www.geonames.org/")!)
+                                            Link("CC BY 4.0", destination: URL(string: "https://creativecommons.org/licenses/by/4.0/")!)
+                                        }
+                                        .font(.caption)
+                                    }
                                 }
                             }
                             if !pendingQuestion.isEmpty {
@@ -184,7 +208,7 @@ private struct ContentView: View {
                 .disabled(busy || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
 
-            Text("Après le bip, parle pendant 5 secondes maximum. Les 6 derniers échanges sont envoyés au fournisseur choisi ; l’audio est traité localement.")
+            Text("Après le bip, parle puis rappuie sur le bouton du lapin ou sur Arrêter l’enregistrement. Arrêt de sécurité à 90 secondes. Les 6 derniers échanges sont envoyés au fournisseur choisi ; l’audio est traité localement.")
                 .font(.caption).foregroundStyle(.secondary)
 
             Divider()
@@ -221,12 +245,14 @@ private struct ContentView: View {
         }
         .onDisappear {
             operationTask?.cancel()
+            recording?.cancel()
             buttonWatcher.stop()
             StreamPlayback.cancelActive()
             LocalVoice.shutdown()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             operationTask?.cancel()
+            recording?.cancel()
             buttonWatcher.stop()
             StreamPlayback.cancelActive()
             LocalVoice.shutdown()
@@ -256,8 +282,20 @@ private struct ContentView: View {
 
     private func listen() {
         guard !showingSettings else { return }
-        run("Préparation du micro… parle après le bip du lapin.") {
-            let question = try await Bridge.listen(seconds: 6)
+        if let recording {
+            recording.stop()
+            status = "Fin de l’enregistrement…"
+            return
+        }
+        guard !busy else { return }
+        let session = Bridge.RemoteSession()
+        recording = session
+        run("Préparation du micro… attends le bip, puis parle et rappuie pour arrêter.") {
+            defer { recording = nil; session.cancel() }
+            let question = try await Bridge.listen(session: session) {
+                recording = nil
+                status = "Transcription locale…"
+            }
             try await respond(to: question)
         }
     }
@@ -283,7 +321,9 @@ private struct ContentView: View {
         pendingQuestion = question
         defer { pendingQuestion = "" }
         status = "Réponse de l'agent IA…"
-        let answer = try await Bridge.ask(conversationPrompt(history: history, question: question))
+        let direction = thinkingForward ? "forward" : "backward"
+        thinkingForward.toggle()
+        let answer = try await Bridge.askWhileThinking(conversationPrompt(history: history, question: question), direction: direction)
         try Task.checkCancellation()
         history.append(ConversationEntry(question: question, answer: answer))
         status = "Préparation de la voix et lecture sur le Nabaztag…"

@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import os
+import signal
 import struct
 import sys
 import tempfile
@@ -43,7 +44,7 @@ def decoded_choreography(resource):
 
 class RemoteBridgeTests(unittest.TestCase):
     @bridge.contextlib.contextmanager
-    def stream_fixture(self, data=None, early_failure=False):
+    def stream_fixture(self, data=None, early_failure=False, stalled=False):
         real_popen = bridge.subprocess.Popen
         players = []
         connection = mock.Mock()
@@ -58,23 +59,31 @@ class RemoteBridgeTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "first-pcm"
-            script = """import os, sys
+            script = """import os, sys, time
 from pathlib import Path
 if sys.argv[2] == 'fail':
     sys.stderr.write('mock ALSA failure')
     sys.exit(7)
+if sys.argv[2] == 'stall':
+    time.sleep(10)
 data = os.read(0, 2)
 if data:
     Path(sys.argv[1]).write_bytes(data)
-while os.read(0, 16384):
-    pass
+with Path(sys.argv[1] + '.pcm').open('wb') as output:
+    output.write(data)
+    while True:
+        data = os.read(0, 16384)
+        if not data:
+            break
+        output.write(data)
+        output.flush()
 """
 
             def popen(arguments, **kwargs):
                 self.assertEqual(arguments, ["aplay", "-q", "-D", bridge.DEVICE, "-t", "raw", "-f",
                                              "S16_LE", "-r", "24000", "-c", "1"])
                 player = real_popen([sys.executable, "-c", script, str(marker),
-                                     "fail" if early_failure else "ok"], **kwargs)
+                                     "fail" if early_failure else "stall" if stalled else "ok"], **kwargs)
                 players.append(player)
                 return player
 
@@ -105,9 +114,14 @@ while os.read(0, 16384):
         self.assertEqual(bridge.parse_action("play-animated"), ("play-animated", None))
         self.assertEqual(bridge.parse_action("watch-button"), ("watch-button", None))
         self.assertEqual(bridge.parse_action("record 15"), ("record", 15))
+        self.assertEqual(bridge.parse_action("record-until-stop"), ("record-until-stop", None))
+        self.assertEqual(bridge.parse_action("think forward"), ("think", "forward"))
+        self.assertEqual(bridge.parse_action("think backward"), ("think", "backward"))
         for command in ("", "sh", "diagnostic extra", "record", "record 0", "record 16",
                         "record 1; reboot", "play; reboot", "record $(id)", "record '1",
-                        "watch-button extra", "watch-button; reboot", "play-animated extra", "play-animated; reboot"):
+                        "watch-button extra", "watch-button; reboot", "play-animated extra", "play-animated; reboot",
+                        "record-until-stop 90", "record-until-stop; reboot", "think", "think sideways",
+                        "think forward extra", "think forward; reboot", "think $(id)"):
             with self.subTest(command=command), self.assertRaises(ValueError):
                 bridge.parse_action(command)
 
@@ -119,6 +133,8 @@ while os.read(0, 16384):
                 self.assertEqual(bridge.parse_action(command), ("play-animated", options))
                 self.assertEqual(bridge.parse_action(command.replace("play-animated", "play-stream")),
                                  ("play-stream", options))
+                self.assertEqual(bridge.parse_action(command.replace("play-animated", "play-queue")),
+                                 ("play-queue", options))
                 self.assertEqual(bridge.parse_action(
                     "/usr/bin/python3 /usr/local/lib/nabaztag-mac/bridge_remote.py " + command),
                     ("play-animated", options))
@@ -135,7 +151,10 @@ while os.read(0, 16384):
                 bridge.parse_action(command)
             with self.subTest(stream_command=command), self.assertRaises(ValueError):
                 bridge.parse_action(command.replace("play-animated", "play-stream"))
+            with self.subTest(queue_command=command), self.assertRaises(ValueError):
+                bridge.parse_action(command.replace("play-animated", "play-queue"))
         self.assertRaises(ValueError, bridge.parse_action, "play-stream")
+        self.assertRaises(ValueError, bridge.parse_action, "play-queue")
 
     def test_main_routes_stream_without_reading_whole_input(self):
         source = mock.Mock()
@@ -146,9 +165,16 @@ while os.read(0, 16384):
         stream.assert_called_once_with(source, options=("large", "random", "123456"))
         source.read.assert_not_called()
 
+        with mock.patch.dict(bridge.os.environ, {"SSH_ORIGINAL_COMMAND": "play-queue large random 123456"}, clear=True), \
+             mock.patch.object(bridge.sys, "stdin", mock.Mock(buffer=source)), \
+             mock.patch.object(bridge, "stream_play") as stream:
+            self.assertEqual(bridge.main(), 0)
+        stream.assert_called_once_with(source, options=("large", "random", "123456"), queued=True)
+        source.read.assert_not_called()
+
     def test_exact_remote_prefix_is_allowed(self):
         prefix = "/usr/bin/python3 /usr/local/lib/nabaztag-mac/bridge_remote.py "
-        for command in ("diagnostic", "play", "play-animated", "play-stream small fixed 002838", "watch-button", "record 6"):
+        for command in ("diagnostic", "play", "play-animated", "play-stream small fixed 002838", "play-queue small fixed 002838", "watch-button", "record 6", "record-until-stop", "think forward", "think backward"):
             with self.subTest(command=command):
                 self.assertEqual(bridge.parse_action(prefix + command), bridge.parse_action(command))
         for command in (
@@ -168,6 +194,15 @@ while os.read(0, 16384):
              mock.patch.object(bridge, "record") as record:
             self.assertEqual(bridge.main(), 0)
         record.assert_called_once_with(6)
+
+    def test_main_routes_controlled_capture_and_thinking(self):
+        for command, action, argument in (("record-until-stop", "record", None),
+                                          ("think forward", "think", "forward"),
+                                          ("think backward", "think", "backward")):
+            with mock.patch.dict(bridge.os.environ, {"SSH_ORIGINAL_COMMAND": command}, clear=True), \
+                 mock.patch.object(bridge, action) as routed:
+                self.assertEqual(bridge.main(), 0)
+            routed.assert_called_once_with(argument)
 
     def test_main_prefers_forced_ssh_command(self):
         command = "/usr/bin/python3 /usr/local/lib/nabaztag-mac/bridge_remote.py watch-button"
@@ -365,6 +400,98 @@ while os.read(0, 16384):
                  mock.patch.object(bridge, "MAX_STREAM_AUDIO", 4):
                 with self.assertRaisesRegex(ValueError, pattern):
                     bridge.stream_play(fixture[0], ("off", "off", "002838"))
+
+    def test_queue_buffers_complete_segments_then_drains_all_pcm_in_order(self):
+        failures = []
+        first, second, third = b"\x01\x02\x03\x04", b"\x05\x06", b"\x07\x08\x09\x0a"
+        with self.stream_fixture() as (source, writer, marker, ready, _, players, connection):
+            def run():
+                try:
+                    bridge.stream_play(source, ("off", "off", "002838"), queued=True)
+                except BaseException as error:
+                    failures.append(error)
+
+            thread = threading.Thread(target=run)
+            thread.start()
+            try:
+                self.assertTrue(ready.wait(2))
+                header = struct.pack("!I", len(first))
+                writer.write(header[:2])
+                time.sleep(0.03)
+                self.assertFalse(marker.exists(), "A fragmented header cannot start playback")
+                writer.write(header[2:] + first + struct.pack("!I", len(second)) + second[:1])
+                time.sleep(0.03)
+                self.assertFalse(marker.exists(), "Preroll requires two complete audio segments")
+                writer.write(second[1:])
+                until = time.monotonic() + 2
+                while not marker.exists() and time.monotonic() < until:
+                    time.sleep(0.01)
+                self.assertEqual(marker.read_bytes(), first[:2])
+                self.assertTrue(thread.is_alive(), "Queued playback must start before EOF")
+                writer.write(struct.pack("!I", len(third)) + third)
+                received = Path(str(marker) + ".pcm")
+                until = time.monotonic() + 2
+                while (not received.exists() or received.stat().st_size < len(first + second + third)) and time.monotonic() < until:
+                    time.sleep(0.01)
+                self.assertEqual(received.read_bytes(), first + second + third,
+                                 "After preroll, one complete segment must play without waiting for another or EOF")
+            finally:
+                writer.close()
+                thread.join(timeout=3)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(failures, [])
+            self.assertEqual(Path(str(marker) + ".pcm").read_bytes(), first + second + third)
+            self.assertEqual(players[0].returncode, 0)
+            self.assertEqual(len(players), 1, "Keep one PCM player across all segments")
+            connection.sendall.assert_not_called()
+
+    def test_queue_releases_single_segment_at_eof_and_rejects_invalid_frames(self):
+        pcm = b"\x01\x02\x03\x04"
+        with self.stream_fixture(struct.pack("!I", len(pcm)) + pcm) as fixture:
+            bridge.stream_play(fixture[0], ("off", "off", "002838"), queued=True)
+            self.assertEqual(Path(str(fixture[2]) + ".pcm").read_bytes(), pcm)
+        with self.stream_fixture((struct.pack("!I", 2) + pcm[:2]) * 3) as fixture, \
+             mock.patch.object(bridge, "MAX_STREAM_SEGMENTS", 2):
+            with self.assertRaisesRegex(ValueError, "Trop de segments"):
+                bridge.stream_play(fixture[0], ("off", "off", "002838"), queued=True)
+        for data, pattern in (
+                (b"", "vide"), (b"\0\0", "vide|tronqué"), (struct.pack("!I", 0), "invalide"),
+                (struct.pack("!I", 3), "invalide"), (struct.pack("!I", 6), "90 secondes"),
+                (struct.pack("!I", 4) + pcm[:2], "tronqué"),
+                (struct.pack("!I", 2) + pcm[:2] + b"\0", "tronqué"),
+                (struct.pack("!I", 4) + pcm + struct.pack("!I", 2), "90 secondes")):
+            with self.subTest(data=data), self.stream_fixture(data) as fixture, \
+                 mock.patch.object(bridge, "MAX_STREAM_AUDIO", 4):
+                with self.assertRaisesRegex(ValueError, pattern):
+                    bridge.stream_play(fixture[0], ("off", "off", "002838"), queued=True)
+
+    def test_queue_times_out_if_pcm_player_stops_consuming(self):
+        pcm = b"\0" * (256 * 1024)
+        failures = []
+        with self.stream_fixture(stalled=True) as fixture, \
+             mock.patch.object(bridge, "STREAM_PACKET_TIMEOUT", 0.2):
+            source, writer, _, ready, _, players, _ = fixture
+
+            def feed():
+                try:
+                    if not ready.wait(2):
+                        raise TimeoutError("No ready ACK")
+                    writer.write(struct.pack("!I", len(pcm)) + pcm + struct.pack("!I", 2) + b"\0\0")
+                except BaseException as error:
+                    failures.append(error)
+                finally:
+                    writer.close()
+
+            producer = threading.Thread(target=feed)
+            producer.start()
+            try:
+                with self.assertRaisesRegex(TimeoutError, "ne consomme plus"):
+                    bridge.stream_play(source, ("off", "off", "002838"), queued=True)
+            finally:
+                producer.join(timeout=3)
+            self.assertFalse(producer.is_alive())
+            self.assertEqual(failures, [])
+            self.assertIsNotNone(players[0].returncode)
         for wall, packet in ((1, 0.03), (0.03, 1)):
             with self.subTest(wall=wall, packet=packet), self.stream_fixture() as fixture, \
                  mock.patch.object(bridge, "STREAM_WALL_TIMEOUT", wall), \
@@ -585,6 +712,145 @@ while os.read(0, 16384):
             self.assertLessEqual(max(abs(value) for value in samples), 1500)
             crossings = sum(before <= 0 < after for before, after in zip(samples, samples[1:]))
             self.assertEqual(crossings, 88)
+
+    def test_thinking_ears_rotate_together_oppositely_and_swap_between_requests(self):
+        for direction, expected_directions in (("forward", [0, 1]), ("backward", [1, 0])):
+            events, _ = decoded_choreography(bridge.thinking_choreography(direction))
+            directions, positions, motors = [None, None], [0, 0], []
+            for elapsed, opcode, operands in events:
+                self.assertEqual(elapsed, 0, "Both motors start before the shared wait")
+                if opcode == 20:
+                    motor, value = operands
+                    directions[motor] = value
+                elif opcode == 17:
+                    motor, steps = operands
+                    self.assertEqual(steps, 17, "Each motor completes exactly one full turn")
+                    positions[motor] = (positions[motor] + (1 if directions[motor] == 0 else -1) * steps) % 17
+                    motors.append(motor)
+            self.assertEqual(directions, expected_directions)
+            self.assertEqual(motors, [0, 1])
+            self.assertEqual(positions, [0, 0])
+            self.assertEqual(events[-1][1], 19, "Wait for both motors before release; no LED or idle repositioning")
+
+    def test_thinking_finishes_current_turn_before_eof_or_signal_release(self):
+        for mode in ("eof", "signal"):
+            trace = []
+            connection, stdin = mock.Mock(), mock.Mock()
+            stdin.fileno.return_value = 7
+
+            @bridge.contextlib.contextmanager
+            def reservation():
+                try:
+                    yield connection, io.BytesIO()
+                finally:
+                    trace.append("released")
+
+            def finish(*args):
+                trace.append("completed")
+                if mode == "signal":
+                    signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+
+            previous = signal.getsignal(signal.SIGTERM)
+            with mock.patch.object(bridge, "reserve", side_effect=reservation), \
+                 mock.patch.object(bridge.sys, "stdin", stdin), \
+                 mock.patch.object(bridge.sys, "stdout", io.StringIO()) as output, \
+                 mock.patch.object(bridge.select, "select", side_effect=[([], [], []), ([7], [], [])]), \
+                 mock.patch.object(bridge.os, "read", return_value=b""), \
+                 mock.patch.object(bridge, "finish_ears", side_effect=finish):
+                connection.sendall.side_effect = lambda data: trace.append("command")
+                bridge.think("forward")
+            self.assertEqual(output.getvalue(), "ready\n")
+            self.assertEqual(trace, ["command", "completed", "released"])
+            self.assertIs(signal.getsignal(signal.SIGTERM), previous)
+            packet = json.loads(connection.sendall.call_args.args[0])
+            self.assertFalse(packet["cancelable"], "Normal stop finishes a full turn instead of canceling")
+
+    def test_thinking_stops_before_start_and_preserves_errors(self):
+        stdin, connection = mock.Mock(), mock.Mock()
+        stdin.fileno.return_value = 7
+        for control, error in ((b"", None), (b"invalid", ValueError)):
+            with mock.patch.object(bridge, "reserve", return_value=bridge.contextlib.nullcontext((connection, io.BytesIO()))), \
+                 mock.patch.object(bridge.sys, "stdin", stdin), \
+                 mock.patch.object(bridge.sys, "stdout", io.StringIO()), \
+                 mock.patch.object(bridge.select, "select", return_value=([7], [], [])), \
+                 mock.patch.object(bridge.os, "read", return_value=control):
+                if error:
+                    with self.assertRaises(error):
+                        bridge.think("forward")
+                else:
+                    bridge.think("forward")
+        connection.sendall.assert_not_called()
+        with mock.patch.object(bridge, "reserve", return_value=bridge.contextlib.nullcontext((connection, io.BytesIO()))), \
+             mock.patch.object(bridge.sys, "stdin", stdin), \
+             mock.patch.object(bridge.sys, "stdout", io.StringIO()), \
+             mock.patch.object(bridge.select, "select", return_value=([], [], [])), \
+             mock.patch.object(bridge, "finish_ears", side_effect=ValueError("nabd failed")):
+            with self.assertRaisesRegex(ValueError, "nabd failed"):
+                bridge.think("forward")
+
+    def test_controlled_record_stops_on_second_button_or_fragmented_stop(self):
+        for mode in ("button", "stdin", "alsa-error", "limit"):
+            connection, stdin, capture = mock.Mock(), mock.Mock(), mock.Mock()
+            stdin.fileno.return_value = 7
+            capture.returncode = None
+            capture.poll.side_effect = [None, 0, 0] if mode == "limit" else lambda: capture.returncode
+            filenames = []
+
+            def popen(arguments, **kwargs):
+                self.assertEqual(arguments[-2], "90", "The safety limit replaces the fixed six-second capture")
+                filenames.append(Path(arguments[-1]))
+                filenames[-1].write_bytes(wav_data(frames=1600))
+                return capture
+
+            def communicate(**kwargs):
+                capture.returncode = 0 if mode == "limit" else 1
+                return None, b"ALSA capture failure" if mode == "alsa-error" else b""
+
+            capture.communicate.side_effect = communicate
+            ready = [connection] if mode == "button" else [7]
+            output = mock.Mock(buffer=io.BytesIO())
+            with mock.patch.object(bridge, "reserve", return_value=bridge.contextlib.nullcontext((connection, io.BytesIO()))), \
+                 mock.patch.object(bridge.sys, "stdin", stdin), \
+                 mock.patch.object(bridge.sys, "stdout", output), \
+                 mock.patch.object(bridge.subprocess, "Popen", side_effect=popen), \
+                 mock.patch.object(bridge, "run_audio"), mock.patch.object(bridge.time, "sleep"), \
+                 mock.patch.object(bridge.select, "select", return_value=(ready, [], [])), \
+                 mock.patch.object(bridge.os, "read", side_effect=[b"st", b"op\n"]), \
+                 mock.patch.object(bridge, "receive", side_effect=[{"type": "button_event", "event": "up"},
+                                                                 {"type": "button_event", "event": "click"}]):
+                if mode == "alsa-error":
+                    with self.assertRaisesRegex(ValueError, "ALSA capture failure"):
+                        bridge.record()
+                else:
+                    bridge.record()
+            if mode == "limit":
+                capture.send_signal.assert_not_called()
+            else:
+                capture.send_signal.assert_called_once_with(signal.SIGINT)
+            capture.kill.assert_not_called()
+            self.assertEqual(output.buffer.getvalue(), b"" if mode == "alsa-error" else wav_data(frames=1600))
+            self.assertTrue(all(not filename.exists() for filename in filenames))
+
+    def test_controlled_record_cancels_on_eof_and_rejects_invalid_stop(self):
+        stdin = mock.Mock()
+        stdin.fileno.return_value = 7
+        for control in (b"", b"invalid", b"stop\nextra"):
+            capture = mock.Mock()
+            capture.poll.return_value = None
+            capture.communicate.return_value = (None, b"")
+            with mock.patch.object(bridge, "reserve", return_value=bridge.contextlib.nullcontext((mock.Mock(), io.BytesIO()))), \
+                 mock.patch.object(bridge.sys, "stdin", stdin), \
+                 mock.patch.object(bridge.sys, "stdout", mock.Mock(buffer=io.BytesIO())) as output, \
+                 mock.patch.object(bridge.subprocess, "Popen", return_value=capture), \
+                 mock.patch.object(bridge, "run_audio"), mock.patch.object(bridge.time, "sleep"), \
+                 mock.patch.object(bridge.select, "select", return_value=([7], [], [])), \
+                 mock.patch.object(bridge.os, "read", return_value=control):
+                with self.assertRaises(ValueError):
+                    bridge.record()
+            capture.kill.assert_called_once()
+            capture.communicate.assert_called_once_with(timeout=5)
+            capture.send_signal.assert_not_called()
+            self.assertEqual(output.buffer.getvalue(), b"")
 
     def test_capture_is_killed_and_reaped_when_beep_fails(self):
         capture = mock.Mock()

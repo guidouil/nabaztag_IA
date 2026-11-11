@@ -39,14 +39,22 @@ struct SSHSettingsChecks {
         for action in ["diagnostic", "play", "play-animated", "play-animated off fixed 002838", "play-animated small random FF00AA", "play-animated large off abcdef", "watch-button", "record 1", "record 15"] {
             _ = try settings.arguments(for: action)
         }
+        for action in ["record-until-stop", "think forward", "think backward"] {
+            _ = try settings.arguments(for: action)
+        }
+        for action in ["record-until-stop 6", "record-until-stop; id", "think", "think left", "think forward extra", "think  forward", "think forward\n", "think forward; id", "think $(id)"] {
+            expectFailure { _ = try settings.arguments(for: action) }
+        }
         for action in ["play-stream off off 002838", "play-stream small fixed ABCDEF", "play-stream large random FF00AA"] {
             _ = try settings.arguments(for: action)
+            _ = try settings.arguments(for: action.replacingOccurrences(of: "play-stream", with: "play-queue"))
         }
         for action in ["", "sh", "play; id", "play-animated; id", "play-animated extra", "play-animated huge fixed 002838", "play-animated small unknown 002838", "play-animated small fixed 000000;id", "play-animated small fixed $(id)", "play-animated small fixed 12345", "play-animated small fixed 000000 extra", "record", "record 0", "record 16", "record 01", "record +1", "record 1\n", "record  1", "record $(id)", "record 1;id"] {
             expectFailure { _ = try settings.arguments(for: action) }
         }
         for action in ["play-stream", "play-stream off off", "play-stream small fixed 002838 extra", "play-stream huge fixed 002838", "play-stream small fixed 002838;id", "play-stream off off GGGGGG"] {
             expectFailure { _ = try settings.arguments(for: action) }
+            expectFailure { _ = try settings.arguments(for: action.replacingOccurrences(of: "play-stream", with: "play-queue")) }
         }
         settings.keyPath = folder.path
         expectFailure { try settings.validate() }

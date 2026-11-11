@@ -62,9 +62,18 @@ def collect_audio(results, numpy):
 def split_text(text):
     # Kokoro's French pipeline can truncate oversized phoneme sequences.
     sentences = re.split(r"(?<=[.!?…])\s+|\n+", text)
-    return "\n".join(textwrap.fill(sentence, width=200, break_long_words=True,
-                                   break_on_hyphens=False)
-                     for sentence in sentences if sentence.strip())
+    segments = []
+    for sentence in sentences:
+        sentence = " ".join(sentence.split())
+        while len(sentence) > 200:
+            pauses = list(re.finditer(r"[,;:](?=\s)", sentence[:201]))
+            end = pauses[-1].end() if pauses else len(textwrap.wrap(
+                sentence, width=200, break_long_words=True, break_on_hyphens=False)[0])
+            segments.append(sentence[:end])
+            sentence = sentence[end:].lstrip()
+        if sentence:
+            segments.append(sentence)
+    return "\n".join(segments)
 
 
 def load_local_model(model_path):

@@ -55,7 +55,7 @@ struct AppConfiguration: Codable {
         animationsEnabled ? "play-animated \(selectedEarMotion.rawValue) \(selectedLightMode.rawValue) \(selectedLightColorHex)" : "play"
     }
     var streamPlaybackAction: String {
-        "play-stream \(selectedEarMotion.rawValue) \(selectedLightMode.rawValue) \(selectedLightColorHex)"
+        "play-queue \(selectedEarMotion.rawValue) \(selectedLightMode.rawValue) \(selectedLightColorHex)"
     }
 
     func options(for provider: AIProvider) -> ProviderConfiguration {

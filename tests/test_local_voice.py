@@ -80,6 +80,17 @@ class LocalVoiceTests(unittest.TestCase):
         self.assertTrue(all(len(line) <= 200 for line in voice.split_text("x" * 600).splitlines()))
         self.assertEqual(voice.split_text("Bonjour. Comment vas-tu ? Très bien !"),
                          "Bonjour.\nComment vas-tu ?\nTrès bien !")
+        self.assertEqual(voice.split_text("mot\t" * 160).split(), ["mot"] * 160)
+
+    def test_long_sentences_prefer_clause_punctuation(self):
+        for punctuation in (",", ";", ":"):
+            with self.subTest(punctuation=punctuation):
+                prefix = "D'abord, " + ("une proposition qui garde son rythme naturel " * 3).strip() + punctuation
+                text = prefix + " " + "la phrase continue sans perdre aucun mot " * 8
+                lines = voice.split_text(text).splitlines()
+                self.assertEqual(lines[0], prefix)
+                self.assertTrue(all(len(line) <= 200 for line in lines))
+                self.assertEqual("".join("".join(lines).split()), "".join(text.split()))
 
     def test_invalid_audio_is_refused(self):
         for results in ([], [result([])], [result([0.1], rate=16000)],

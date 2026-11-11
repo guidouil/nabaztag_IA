@@ -66,7 +66,7 @@ struct AppConfigurationChecks {
                 assert(config.animationsEnabled == enabled)
                 let expected = enabled ? "play-animated \(ears.rawValue) \(lights.rawValue) A1B2C3" : "play"
                 assert(config.playbackAction == expected)
-                assert(config.streamPlaybackAction == "play-stream \(ears.rawValue) \(lights.rawValue) A1B2C3")
+                assert(config.streamPlaybackAction == "play-queue \(ears.rawValue) \(lights.rawValue) A1B2C3")
                 let roundTrip = try JSONDecoder().decode(AppConfiguration.self, from: JSONEncoder().encode(config))
                 assert(roundTrip.selectedEarMotion == ears && roundTrip.selectedLightMode == lights)
                 assert(roundTrip.selectedLightColorHex == "A1B2C3" && roundTrip.playbackAction == expected)

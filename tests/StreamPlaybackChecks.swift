@@ -24,7 +24,7 @@ struct StreamPlaybackChecks {
         printf rea
         /bin/sleep 0.02
         printf 'dy\n'
-        /bin/dd bs=2 count=1 of="$fixture/first" 2>/dev/null
+        /bin/dd bs=6 count=1 of="$fixture/first" 2>/dev/null
         /bin/cat > "$fixture/rest"
         if [ "$mode" = error ]; then printf 'test-relay-failed\n' >&2; exit 7; fi
         """#
@@ -51,14 +51,15 @@ struct StreamPlaybackChecks {
         try stream.write(pcm)
         let first = folder.appendingPathComponent("first")
         for _ in 0..<100 {
-            if (try? Data(contentsOf: first))?.count == 2 { break }
+            if (try? Data(contentsOf: first))?.count == 6 { break }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         let firstBytes = try Data(contentsOf: first)
-        assert(firstBytes == Data([1, 2]), "Le premier PCM doit arriver avant finish/EOF.")
+        assert(firstBytes == Data([0, 0, 0, 6, 1, 2]), "La taille et le premier PCM doivent arriver avant finish/EOF.")
+        try stream.write(Data([7, 8]))
         try await stream.finish()
         let rest = try Data(contentsOf: folder.appendingPathComponent("rest"))
-        assert(firstBytes + rest == pcm)
+        assert(firstBytes + rest == Data([0, 0, 0, 6]) + pcm + Data([0, 0, 0, 2, 7, 8]))
         let arguments = try Data(contentsOf: folder.appendingPathComponent("arguments"))
             .split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
         let expectedArguments = try configuration.ssh.arguments(for: configuration.streamPlaybackAction)

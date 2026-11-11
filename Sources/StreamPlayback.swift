@@ -143,7 +143,10 @@ final class StreamPlayback: @unchecked Sendable {
         let descriptorNumber = handle.fileDescriptor
         lock.unlock()
         let deadline = ProcessInfo.processInfo.systemUptime + min(writeTimeout, Double(pcm.count) / 48000 + 15)
-        try pcm.withUnsafeBytes { buffer in
+        var size = UInt32(pcm.count).bigEndian
+        var packet = withUnsafeBytes(of: &size) { Data($0) }
+        packet.append(pcm)
+        try packet.withUnsafeBytes { buffer in
             var offset = 0
             while offset < buffer.count {
                 guard ProcessInfo.processInfo.systemUptime < deadline else {

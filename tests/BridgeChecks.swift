@@ -3,6 +3,116 @@ import Speech
 
 @main
 struct BridgeChecks {
+    static func checkWeatherRouting() throws {
+        func json(_ value: [String: Any]) throws -> String {
+            String(decoding: try JSONSerialization.data(withJSONObject: value), as: UTF8.self)
+        }
+        let plain = try Bridge.weatherQuery("Une réponse ordinaire.")
+        let ordinaryJSON = try Bridge.weatherQuery(json(["example": "JSON ordinaire"]))
+        assert(plain == nil && ordinaryJSON == nil)
+        let command = try json(["tool": "weather", "location": "New York", "country_code": "US", "day_offset": NSNull()])
+        for text in [command, "```json\n\(command)\n```", "```\n\(command)\n```"] {
+            let query = try Bridge.weatherQuery(text)
+            assert(query?.location == "New York" && query?.countryCode == "US" && query?.dayOffset == nil)
+        }
+        let tomorrow = try Bridge.weatherQuery(json(["tool": "weather", "location": "Tokyo", "day_offset": 1]))
+        assert(tomorrow?.location == "Tokyo" && tomorrow?.dayOffset == 1)
+        for text in [String(command.dropLast()), try json(["tool": "weather"]),
+                     "Voici la demande : \(command)", "```JSON\n\(command)\n```", "```json\n\(command)",
+                     try json(["tool": "Weather", "location": "Paris"]), try json(["tool": 7]),
+                     try json(["tool": "weather", "location": "Paris", "day_offset": "tomorrow"])] {
+            do { _ = try Bridge.weatherQuery(text); assertionFailure("Une commande météo invalide ne doit pas être lue à voix haute.") }
+            catch {}
+        }
+    }
+
+    static func checkRemoteSessions() async throws {
+        let folder = try Bridge.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let executable = folder.appendingPathComponent("fake-ssh")
+        let script = #"""
+        #!/bin/sh
+        set -eu
+        fixture=${0%/*}
+        printf '%s\0' "$@" > "$fixture/arguments"
+        printf '%s' "$$" > "$fixture/pid"
+        mode=$(/bin/cat "$fixture/mode")
+        case "$mode" in
+          record)
+            IFS= read -r command
+            test "$command" = stop
+            printf 'RIFF-recorded-until-stop'
+            ;;
+          think)
+            printf rea
+            /bin/sleep 0.02
+            printf 'dy\n'
+            /bin/cat > "$fixture/input"
+            /bin/sleep 0.03
+            printf done > "$fixture/finished"
+            ;;
+          invalid) printf 'invalid\n'; exec /bin/sleep 10 ;;
+          failure) printf 'fixture remote error' >&2; exit 7 ;;
+          stall) trap '' TERM; exec /bin/sleep 10 ;;
+        esac
+        """#
+        try Data(script.utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let key = folder.appendingPathComponent("key")
+        try Data("fixture".utf8).write(to: key)
+        var configuration = AppConfiguration()
+        configuration.ssh.host = "fixture.local"
+        configuration.ssh.keyPath = key.path
+        func prepare(_ mode: String) throws -> Bridge.RemoteSession {
+            try Data(mode.utf8).write(to: folder.appendingPathComponent("mode"))
+            return Bridge.RemoteSession(configuration: configuration, executable: executable.path, readyTimeout: 0.1)
+        }
+        for stopEarly in [false, true] {
+            let capture = try prepare("record")
+            defer { capture.cancel() }
+            if stopEarly { capture.stop() }
+            try await capture.start("record-until-stop")
+            if !stopEarly { capture.stop() }
+            capture.stop()
+            let data = try await capture.result(timeout: 1)
+            assert(data == Data("RIFF-recorded-until-stop".utf8))
+            let arguments = try Data(contentsOf: folder.appendingPathComponent("arguments"))
+                .split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
+            let expected = try configuration.ssh.arguments(for: "record-until-stop")
+            assert(arguments == expected)
+        }
+        for direction in ["forward", "backward"] {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent("finished"))
+            let thinking = try prepare("think")
+            defer { thinking.cancel() }
+            try await thinking.start("think \(direction)", waitForReady: true)
+            assert(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("finished").path))
+            thinking.stop()
+            let ready = try await thinking.result(timeout: 1)
+            assert(ready == Data("ready\n".utf8))
+            assert(FileManager.default.fileExists(atPath: folder.appendingPathComponent("finished").path))
+            let input = try Data(contentsOf: folder.appendingPathComponent("input"))
+            assert(input.isEmpty)
+        }
+        let invalid = try prepare("invalid")
+        do { try await invalid.start("think forward", waitForReady: true); assertionFailure("Un ACK invalide doit échouer.") }
+        catch { assert(error.localizedDescription.contains("invalide")) }
+        invalid.cancel()
+        let failed = try prepare("failure")
+        try await failed.start("record-until-stop")
+        do { _ = try await failed.result(timeout: 1); assertionFailure("Une erreur SSH doit être propagée.") }
+        catch { assert(error.localizedDescription.contains("fixture remote error")) }
+        failed.cancel()
+        let canceled = try prepare("record")
+        canceled.cancel()
+        do { try await canceled.start("record-until-stop"); assertionFailure("Une capture annulée ne démarre pas.") }
+        catch {}
+        let stalled = try prepare("stall")
+        try await stalled.start("record-until-stop")
+        do { _ = try await stalled.result(timeout: 0.1); assertionFailure("Un blocage distant doit expirer.") }
+        catch { assert(error.localizedDescription.contains("Délai")) }
+    }
+
     static func checkCodex() async throws {
         let arguments = Bridge.codexArguments
         assert(Bridge.codexModel == "gpt-6-luna" && Bridge.codexReasoningEffort == "low")
@@ -111,6 +221,8 @@ struct BridgeChecks {
             print("Capture WAV : \(data.count) octets, 3 secondes.")
         default:
             try await checkCodex()
+            try checkWeatherRouting()
+            try await checkRemoteSessions()
             let text = Data("Texte français — `$(echo test)`\n".utf8)
             let result = try await Bridge.run("/bin/cat", [], input: text)
             assert(result == text, "Le texte doit être transmis littéralement.")
@@ -148,7 +260,7 @@ struct BridgeChecks {
                 }
             }
             assert((0..<20).contains(Int(completed)!))
-            print("Tests Bridge : OK (Codex Luna/low/standard isolé sans API/repli, stdin littéral, délai, erreurs, SSH, fin STT unique).")
+            print("Tests Bridge : OK (Codex isolé, stdin, délais, erreurs, capture arrêtée/précoce, réflexion ready/EOF dans les deux sens, SSH, fin STT unique).")
         }
     }
 }

@@ -64,6 +64,39 @@ enum Bridge {
     }
 
     static func ask(_ prompt: String) async throws -> String {
+        let answer = try await askProvider(prompt)
+        do {
+            guard let query = try weatherQuery(answer) else { return answer }
+            return try await WeatherService.answer(query)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let failure as WeatherService.Failure {
+            return failure.message
+        } catch {
+            return "Je n’ai pas pu consulter la météo pour le moment. Précise la ville et le pays, ou réessaie dans un instant."
+        }
+    }
+
+    static func weatherQuery(_ answer: String) throws -> WeatherService.Query? {
+        var text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("```json\n"), text.hasSuffix("```") {
+            text = String(text.dropFirst(8).dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if text.hasPrefix("```\n"), text.hasSuffix("```") {
+            text = String(text.dropFirst(4).dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let data = Data(text.utf8)
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            if text.contains("\"tool\""), text.localizedCaseInsensitiveContains("weather") {
+                throw Failure(message: "Demande météo invalide.")
+            }
+            return nil
+        }
+        guard let tool = object["tool"] else { return nil }
+        guard tool as? String == "weather" else { throw Failure(message: "Demande météo invalide.") }
+        return try JSONDecoder().decode(WeatherService.Query.self, from: data)
+    }
+
+    private static func askProvider(_ prompt: String) async throws -> String {
         let configuration = AppConfiguration.load()
         if configuration.provider == .claudeCode {
             return try await ClaudeCode.ask(prompt)
@@ -123,7 +156,7 @@ enum Bridge {
         return try await run("/usr/bin/ssh", sshArguments("record \(seconds)"), timeout: Double(seconds + 25))
     }
 
-    static func listen(seconds: Int) async throws -> String {
+    static func listen(session: RemoteSession, onRecorded: @MainActor () -> Void) async throws -> String {
         // Ask before capture so a denied permission does not record anything.
         let permission = await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
@@ -138,8 +171,182 @@ enum Bridge {
         let folder = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: folder) }
         let audio = folder.appendingPathComponent("micro.wav")
-        try await record(seconds: seconds).write(to: audio)
+        let data = try await withTaskCancellationHandler(operation: {
+            try await session.start("record-until-stop")
+            return try await session.result(timeout: 150)
+        }, onCancel: { session.cancel() })
+        try data.write(to: audio)
+        await onRecorded()
         return try await transcribe(audio, recognizer: recognizer)
+    }
+
+    static func askWhileThinking(_ prompt: String, direction: String) async throws -> String {
+        let session = RemoteSession()
+        defer { session.cancel() }
+        return try await withTaskCancellationHandler(operation: {
+            try await session.start("think \(direction)", waitForReady: true)
+            let answer: String
+            do { answer = try await ask(prompt) }
+            catch {
+                session.stop()
+                _ = try? await session.result(timeout: 25)
+                throw error
+            }
+            session.stop()
+            _ = try await session.result(timeout: 25)
+            try Task.checkCancellation()
+            return answer
+        }, onCancel: { session.cancel() })
+    }
+
+    final class RemoteSession: @unchecked Sendable {
+        private let configuration: AppConfiguration
+        private let executable: String
+        private let readyTimeout: Double
+        private let lock = NSLock()
+        private let ended = DispatchGroup()
+        private var process: Process?
+        private var input: Pipe?
+        private var folder: URL?
+        private var output: FileHandle?
+        private var errors: FileHandle?
+        private var stopMessage = Data()
+        private var stopped = false
+        private var canceled = false
+
+        init(configuration: AppConfiguration = .load(), executable: String = "/usr/bin/ssh", readyTimeout: Double = 15) {
+            self.configuration = configuration
+            self.executable = executable
+            self.readyTimeout = readyTimeout
+        }
+
+        func start(_ action: String, waitForReady: Bool = false) async throws {
+            try Task.checkCancellation()
+            try await Task.detached(priority: .userInitiated) {
+                try self.startSync(action)
+                if waitForReady { try self.waitReady() }
+            }.value
+        }
+
+        private func startSync(_ action: String) throws {
+            let directory = try Bridge.temporaryDirectory()
+            var retained = false
+            defer { if !retained { try? FileManager.default.removeItem(at: directory) } }
+            let stdout = directory.appendingPathComponent("stdout"), stderr = directory.appendingPathComponent("stderr")
+            FileManager.default.createFile(atPath: stdout.path, contents: nil)
+            FileManager.default.createFile(atPath: stderr.path, contents: nil)
+            let output = try FileHandle(forWritingTo: stdout), errors = try FileHandle(forWritingTo: stderr)
+            let child = Process(), stdin = Pipe()
+            child.executableURL = URL(fileURLWithPath: executable)
+            child.arguments = try configuration.ssh.arguments(for: action)
+            child.environment = try configuration.ssh.environment()
+            child.standardInput = stdin
+            child.standardOutput = output
+            child.standardError = errors
+            guard fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) != -1 else {
+                try? FileManager.default.removeItem(at: directory)
+                throw Failure(message: "Impossible de préparer la commande du lapin.")
+            }
+            lock.lock()
+            defer { lock.unlock() }
+            guard !canceled, process == nil else {
+                try? FileManager.default.removeItem(at: directory)
+                throw Failure(message: "Commande du lapin déjà démarrée ou interrompue.")
+            }
+            process = child; input = stdin; folder = directory; self.output = output; self.errors = errors
+            retained = true
+            stopMessage = action == "record-until-stop" ? Data("stop\n".utf8) : Data()
+            ended.enter()
+            let ended = ended
+            child.terminationHandler = { _ in ended.leave() }
+            do { try child.run() } catch { ended.leave(); throw error }
+            if stopped { sendStop() }
+        }
+
+        private func waitReady() throws {
+            let deadline = ProcessInfo.processInfo.systemUptime + readyTimeout
+            while ProcessInfo.processInfo.systemUptime < deadline {
+                lock.lock()
+                let interrupted = canceled, child = process, stdout = folder?.appendingPathComponent("stdout")
+                lock.unlock()
+                if interrupted { throw CancellationError() }
+                if let stdout {
+                    let handle = try FileHandle(forReadingFrom: stdout)
+                    let data = try handle.read(upToCount: 65) ?? Data()
+                    try handle.close()
+                    if data.starts(with: Data("ready\n".utf8)) { return }
+                    if data.contains(10) || data.count > 64 { throw Failure(message: "Signal de réflexion du lapin invalide.") }
+                }
+                if child?.isRunning != true {
+                    throw Failure(message: "Le lapin n’a pas démarré la réflexion : \(diagnostic())")
+                }
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            cancel()
+            throw Failure(message: "Délai de préparation de la réflexion du lapin dépassé.")
+        }
+
+        func stop() {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !stopped else { return }
+            stopped = true
+            sendStop()
+        }
+
+        private func sendStop() {
+            guard let handle = input?.fileHandleForWriting else { return }
+            if !stopMessage.isEmpty { try? handle.write(contentsOf: stopMessage) }
+            try? handle.close()
+        }
+
+        func result(timeout: Double) async throws -> Data {
+            try await Task.detached(priority: .userInitiated) { try self.resultSync(timeout: timeout) }.value
+        }
+
+        private func resultSync(timeout: Double) throws -> Data {
+            guard ended.wait(timeout: .now() + timeout) == .success else {
+                cancel()
+                throw Failure(message: "Délai de commande du lapin dépassé.")
+            }
+            lock.lock()
+            let interrupted = canceled, child = process, stdout = folder?.appendingPathComponent("stdout")
+            lock.unlock()
+            if interrupted { throw CancellationError() }
+            guard let child, let stdout else { throw Failure(message: "Commande du lapin absente.") }
+            guard child.terminationStatus == 0 else { throw Failure(message: "Commande SSH du lapin : \(diagnostic())") }
+            let size = try stdout.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size <= 8 * 1024 * 1024 else { throw Failure(message: "Réponse du lapin supérieure à 8 Mio.") }
+            return try Data(contentsOf: stdout)
+        }
+
+        private func diagnostic() -> String {
+            lock.lock()
+            let stderr = folder?.appendingPathComponent("stderr")
+            lock.unlock()
+            return stderr.flatMap { try? Data(contentsOf: $0) }.map { String(decoding: $0.suffix(2500), as: UTF8.self) } ?? "Connexion fermée."
+        }
+
+        func cancel() {
+            lock.lock()
+            canceled = true
+            try? input?.fileHandleForWriting.close()
+            let child = process
+            lock.unlock()
+            if let child, child.isRunning {
+                child.terminate()
+                DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+                    if child.isRunning { kill(child.processIdentifier, SIGKILL) }
+                }
+            }
+        }
+
+        deinit {
+            cancel()
+            try? output?.close()
+            try? errors?.close()
+            if let folder { try? FileManager.default.removeItem(at: folder) }
+        }
     }
 
     static func transcribe(_ audio: URL, recognizer: SFSpeechRecognizer) async throws -> String {
