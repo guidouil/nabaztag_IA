@@ -1,7 +1,7 @@
 import Foundation
 
 enum AIProvider: String, Codable, CaseIterable, Identifiable {
-    case chatgpt, claudeCode, claude, grokBuild, grok, gemini, openAICompatible
+    case chatgpt, claudeCode, claude, grokBuild, grok, gemini, mistral, openAICompatible
 
     var id: String { rawValue }
     var usesAPI: Bool { ![AIProvider.chatgpt, .claudeCode, .grokBuild].contains(self) }
@@ -14,6 +14,7 @@ enum AIProvider: String, Codable, CaseIterable, Identifiable {
         case .grokBuild: return "Grok · abonnement Grok Build"
         case .grok: return "Grok · API"
         case .gemini: return "Gemini · API"
+        case .mistral: return "Mistral · API"
         case .openAICompatible: return "API compatible OpenAI"
         }
     }
@@ -24,6 +25,7 @@ enum AIProvider: String, Codable, CaseIterable, Identifiable {
         case .claude: return "claude-haiku-5-5"
         case .grok: return "grok-4.7"
         case .gemini: return "gemini-3.8-flash"
+        case .mistral: return "mistral-small-latest"
         }
     }
 
@@ -33,6 +35,7 @@ enum AIProvider: String, Codable, CaseIterable, Identifiable {
         case .claude: return "https://api.anthropic.com/v1"
         case .grok: return "https://api.x.ai/v1"
         case .gemini: return "https://generativelanguage.googleapis.com/v1beta"
+        case .mistral: return "https://api.mistral.ai/v1"
         case .openAICompatible: return "https://api.openai.com/v1"
         }
     }
@@ -114,7 +117,7 @@ enum RemoteAI {
                 body["generationConfig"] = ["maxOutputTokens": 2048,
                                             "thinkingConfig": ["thinkingLevel": "low"]]
             }
-        case .grok, .openAICompatible:
+        case .grok, .mistral, .openAICompatible:
             // https://docs.x.ai/developers/rest-api-reference/inference/chat-completions
             endpoint = url.appendingPathComponent("chat/completions")
             body = ["model": model, "messages": [["role": "user", "content": prompt]],
@@ -172,7 +175,7 @@ enum RemoteAI {
             }
             let parts = (candidate?["content"] as? [String: Any])?["parts"] as? [[String: Any]] ?? []
             text = parts.filter { $0["thought"] as? Bool != true }.compactMap { $0["text"] as? String }.joined(separator: "\n")
-        case .grok, .openAICompatible:
+        case .grok, .mistral, .openAICompatible:
             let choice = (object["choices"] as? [[String: Any]])?.first
             guard choice?["finish_reason"] as? String != "length" else {
                 throw Failure(message: "Le fournisseur a atteint la limite de réponse ; reformule une question plus courte.")

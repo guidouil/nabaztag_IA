@@ -33,7 +33,7 @@ enum Bridge {
         "-c", "cli_auth_credentials_store=\"file\"",
         "-c", "features.apps=false", "-c", "features.multi_agent=false",
         "-c", "features.apply_patch_freeform=false",
-        "-c", "features.hooks=false", "-c", "web_search=\"disabled\"", "-"
+        "-c", "features.hooks=false", "-c", "web_search=\"live\"", "-"
     ]
 
     static func sshArguments(_ action: String) throws -> [String] {
@@ -141,6 +141,19 @@ enum Bridge {
         let answer = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !answer.isEmpty else { throw Failure(message: "Codex a renvoyé une réponse vide.") }
         return answer
+    }
+
+    static func spokenAnswer(_ answer: String) -> String {
+        // shortcut: inline links support one level of URL parentheses; use a Markdown parser for richer formatting.
+        answer
+            .replacingOccurrences(of: #"(?ims)^[ \t]*Sources[ \t]*:.*\z"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"cite[^]*"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)\[([^\]\n]*)\]\(https?://(?:[^\s()]|\([^\s()]*\))+\)"#, with: "$1", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)<?\bhttps?://(?:[^\s<>()]|\([^\s<>()]*\))+(?<![.,;:!?])>?"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\(\s*\)"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #" +([.,])"#, with: "$1", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func speak(_ text: String) async throws {

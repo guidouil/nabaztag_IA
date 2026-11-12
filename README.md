@@ -31,9 +31,17 @@ Demander **« Quelles sont les dernières infos en France ? »**, **« Les actua
 
 Les sources fixes sont les flux RSS de [France 24 — France](https://www.france24.com/fr/france/rss), du [Monde — International](https://www.lemonde.fr/international/rss_full.xml) et du [Monde — Technologies](https://www.lemonde.fr/technologies/rss_full.xml). La source et la date de publication de chaque titre sont annoncées ; les dates et heures sont exprimées dans le fuseau du Mac. Seuls les titres publiés au cours des 72 dernières heures sont retenus, triés du plus récent au plus ancien. Si aucun titre ne satisfait cette limite, le lapin le dit ; il ne présente pas un ancien article comme une nouvelle du jour.
 
-Les flux sont consultés à chaque demande depuis le Mac, quel que soit le fournisseur IA choisi, sans clé d'actualités, dépendance supplémentaire ni changement du relais sur le lapin. Les éditeurs reçoivent une requête pour leur flux fixe, sans la conversation ni l'audio. En cas de panne ou de données invalides, le lapin annonce l'échec sans inventer de nouvelles. Cette fonction lit les titres des flux ; elle ne consulte pas les articles complets et ne réalise pas de recherche générale sur le Web.
+Les flux sont consultés à chaque demande depuis le Mac, quel que soit le fournisseur IA choisi, sans clé d'actualités, dépendance supplémentaire ni changement du relais sur le lapin. Les éditeurs reçoivent une requête pour leur flux fixe, sans la conversation ni l'audio. En cas de panne ou de données invalides, le lapin annonce l'échec sans inventer de nouvelles. Ce bulletin RSS lit uniquement les titres des flux. Pour approfondir un sujet ou chercher sur le Web avec ChatGPT, utiliser la recherche décrite ci-dessous.
 
 Les [conditions d'utilisation des flux RSS du Monde](https://www.lemonde.fr/le-monde-et-vous/article/2025/07/14/les-flux-rss-du-monde-fr_5498778_3237.html) réservent leur usage à un cadre strictement personnel, non professionnel et non collectif.
+
+## Recherche Web avec ChatGPT
+
+Avec **ChatGPT · abonnement Codex**, demander par exemple **« Cherche sur le Web qui a créé le Nabaztag et explique-moi son histoire »**, ou **« Cherche les dernières informations sur ce sujet et explique ce qui a changé »**. Après une réponse ou un titre d'actualité, on peut poursuivre par **« Pourquoi est-ce important ? »** ou **« Peux-tu approfondir ce point ? »**. Les demandes vocales et la saisie texte utilisent le même fonctionnement.
+
+ChatGPT reçoit la consigne de consulter le Web pour une recherche explicite, une information récente ou un approfondissement d'actualité, puis d'en tirer une réponse naturelle en une à trois phrases. Les liens des sources restent dans **Afficher la conversation** ; leurs URL et les marqueurs techniques de citation sont retirés du texte envoyé à la voix. Un simple bulletin d'actualités conserve la lecture des titres RSS. Si les sources ne permettent pas de conclure ou si la recherche échoue, l'IA doit le signaler.
+
+La recherche utilise le mode natif Codex [`web_search = "live"`](https://learn.chatgpt.com/docs/config-file/config-reference), sans clé API ni service supplémentaire configuré dans l'application. Elle utilise le compte Codex déjà connecté et ses quotas ; la consultation des sources peut allonger l'attente. Le texte de la question et le contexte de conversation sont traités par Codex ; les requêtes de recherche et les consultations de pages passent par ses services Web. L'audio reste traité localement. Cette recherche est disponible ici uniquement avec ChatGPT : pour les autres fournisseurs, l'assistant indique de choisir ChatGPT dans les réglages.
 
 ## Ouvrir dans Xcode
 
@@ -61,11 +69,14 @@ Le relais audio doit être installé sur le lapin. Celui-ci est déjà préparé
 | Grok · abonnement Grok Build | Connexion du CLI officiel avec un abonnement SuperGrok/X Premium+ compatible ; aucune clé API |
 | Grok · API | API xAI, clé requise |
 | Gemini | API Google, clé requise |
+| Mistral · API | API Mistral, clé requise ; `mistral-small-latest` par défaut |
 | API compatible OpenAI | Modèle et adresse configurables ; clé requise sauf serveur local |
 
-Les abonnements aux interfaces de chat Claude/Grok/Gemini ne sont pas réutilisés par ces connecteurs API. Vérifier les prix et quotas du compte fournisseur avant usage. Un serveur compatible local tel qu'Ollama ou LM Studio peut employer une URL HTTP sur `localhost` ou `127.0.0.1`, avec un modèle déjà installé et une API Chat Completions disponible. Les modèles et URL sont éditables. Le changement de fournisseur ou d'adresse/modèle efface le contexte visible pour commencer une nouvelle conversation.
+Les abonnements aux interfaces de chat Claude/Grok/Gemini/Le Chat ne sont pas réutilisés par ces connecteurs API. Vérifier les prix et quotas du compte fournisseur avant usage. Un serveur compatible local tel qu'Ollama ou LM Studio peut employer une URL HTTP sur `localhost` ou `127.0.0.1`, avec un modèle déjà installé et une API Chat Completions disponible. Les modèles et URL sont éditables. Le changement de fournisseur ou d'adresse/modèle efface le contexte visible pour commencer une nouvelle conversation.
 
-Les formats REST suivent les documentations [Claude](https://platform.claude.com/docs/en/api/messages/create), [Grok](https://docs.x.ai/developers/rest-api-reference/inference/chat-completions) et [Gemini](https://ai.google.dev/api). Les formats ont été testés avec des réponses de référence ; aucun appel à ces trois comptes n'a été réalisé faute de clés.
+Pour Mistral, choisir **Mistral · API** dans les réglages, saisir une clé API Mistral puis enregistrer. L'adresse initiale est `https://api.mistral.ai/v1` ; le modèle et l'adresse restent modifiables.
+
+Les formats REST suivent les documentations [Claude](https://platform.claude.com/docs/en/api/messages/create), [Grok](https://docs.x.ai/developers/rest-api-reference/inference/chat-completions), [Gemini](https://ai.google.dev/api) et [Mistral](https://docs.mistral.ai/api). Les formats ont été testés avec des réponses de référence ; aucun appel à ces quatre comptes n'a été réalisé faute de clés.
 
 La version 0.7 distingue **Grok · abonnement Grok Build** de **Grok · API**. **Grok Bot** reste un service cloud distinct : son [webhook de routine](https://docs.x.ai/grok-bot/skills-routines-and-automations#webhooks) démarre une tâche dont le résultat apparaît dans son chat ; aucune interface publique de réponse conversationnelle synchrone n'a été identifiée dans cette documentation. Aucun connecteur Grok Bot n'est ajouté.
 
@@ -134,7 +145,7 @@ Dans **Réglages → Animations**, les effets pendant les réponses vocales et l
 
 Ces choix sont conservés entre les lancements. Les réglages initiaux restent de petits mouvements avec une lumière cyan ; une ancienne désactivation des animations conserve oreilles et lumières désactivées. En fin de lecture, la séquence termine son retour compensatoire avant de rendre le lapin à Pynab ; cela peut ajouter un court délai, nominalement jusqu'à 1,2 seconde en mode Petits ou 2,4 secondes en mode Grands. Le calibrage reste géré par Pynab ; aucun effet n'est ajouté à l'enregistrement du micro ou au bip. Le rythme est fixe, sans analyse des syllabes. Le réglage des lumières concerne les effets ajoutés par l'application ; le voyant de statut habituel de Pynab au repos reste géré par Pynab.
 
-La conversation et sa transcription sont masquées à l'ouverture ; **Afficher la conversation** permet de les consulter. Ce panneau reste fermé pendant les réponses, sauf si on l'ouvre. Les échanges restent en mémoire dans l'application ; les six derniers sont renvoyés avec la nouvelle question au fournisseur choisi. En mode ChatGPT, Codex est lancé avec `--ephemeral`, dans un répertoire temporaire, avec ses commandes shell et autres intégrations désactivées. Les fichiers temporaires de texte et d'audio sont supprimés à la fin des opérations ; cela ne constitue pas une garantie d'effacement physique sur le disque. Le texte est traité par le fournisseur choisi.
+La conversation et sa transcription sont masquées à l'ouverture ; **Afficher la conversation** permet de les consulter. Ce panneau reste fermé pendant les réponses, sauf si on l'ouvre. Les échanges restent en mémoire dans l'application ; les six derniers sont renvoyés avec la nouvelle question au fournisseur choisi. En mode ChatGPT, Codex est lancé avec `--ephemeral`, dans un répertoire temporaire, avec la recherche Web native activée ; ses commandes shell et autres intégrations restent désactivées. Les fichiers temporaires de texte et d'audio sont supprimés à la fin des opérations ; cela ne constitue pas une garantie d'effacement physique sur le disque. Le texte est traité par le fournisseur choisi.
 
 La transcription Apple est déjà locale et ne consomme pas de tokens. Whisper n'a pas été ajouté, conformément au choix de l'utilisateur pour cette version.
 

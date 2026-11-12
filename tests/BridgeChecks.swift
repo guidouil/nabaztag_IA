@@ -3,6 +3,20 @@ import Speech
 
 @main
 struct BridgeChecks {
+    static func checkSpokenAnswer() {
+        let plain = "À Paris, il fait 12,5 °C (ressenti 10 °C), avec 65 % d’humidité."
+        assert(Bridge.spokenAnswer(plain) == plain)
+        assert(Bridge.spokenAnswer("C’est confirmé. citeturn0search0turn1view2\nLa suite.") == "C’est confirmé. La suite.")
+        assert(Bridge.spokenAnswer("Selon [France 24](https://www.france24.com/fr/), cela avance.") == "Selon France 24, cela avance.")
+        assert(Bridge.spokenAnswer("Selon [V&A](https://www.vam.ac.uk/), le lapin est exposé.\nSources : [V&A](https://www.vam.ac.uk/) [Nabaztag.com](https://nabaztag.com/)") == "Selon V&A, le lapin est exposé.")
+        assert(Bridge.spokenAnswer("Le lapin est exposé.\n\nSources :\n- [V&A](https://www.vam.ac.uk/)\n- [Nabaztag.com](https://nabaztag.com/)") == "Le lapin est exposé.")
+        assert(Bridge.spokenAnswer("Les sources : elles confirment ce point.") == "Les sources : elles confirment ce point.")
+        assert(Bridge.spokenAnswer("Le [Nabaztag](https://fr.wikipedia.org/wiki/Nabaztag_(objet)) parle.") == "Le Nabaztag parle.")
+        assert(Bridge.spokenAnswer("C’est confirmé (https://example.com/source). La suite est disponible https://example.com/info.") == "C’est confirmé. La suite est disponible.")
+        assert(Bridge.spokenAnswer("Détails : <HTTPS://example.com/source>\n\nMerci.") == "Détails : Merci.")
+        assert(Bridge.spokenAnswer("citeturn0search0 ( https://example.com )") == "")
+    }
+
     static func checkServiceRouting() throws {
         func json(_ value: [String: Any]) throws -> String {
             String(decoding: try JSONSerialization.data(withJSONObject: value), as: UTF8.self)
@@ -142,7 +156,7 @@ struct BridgeChecks {
             "model_reasoning_summary=\"none\"", "service_tier=\"default\"", "features.fast_mode=false",
             "approval_policy=\"never\"", "cli_auth_credentials_store=\"file\"", "features.shell_tool=false",
             "features.apps=false", "features.multi_agent=false", "features.apply_patch_freeform=false",
-            "features.hooks=false", "web_search=\"disabled\""]))
+            "features.hooks=false", "web_search=\"live\""]))
 
         let folder = try Bridge.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -235,6 +249,7 @@ struct BridgeChecks {
             }
             print("Capture WAV : \(data.count) octets, 3 secondes.")
         default:
+            checkSpokenAnswer()
             try await checkCodex()
             try checkServiceRouting()
             try await checkRemoteSessions()

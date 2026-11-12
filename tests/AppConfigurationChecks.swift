@@ -19,6 +19,21 @@ struct AppConfigurationChecks {
         assert(config.apiSecretAccount(for: .claude) != oldAccount)
         let decoded = try JSONDecoder().decode(AppConfiguration.self, from: JSONEncoder().encode(config))
         assert(decoded.ssh.host == "nabaztag-609.local" && decoded.provider == .claude)
+        var mistral = config
+        mistral.provider = .mistral
+        try mistral.validate()
+        assert(mistral.options(for: .mistral).model == "mistral-small-latest")
+        assert(mistral.options(for: .mistral).baseURL == "https://api.mistral.ai/v1")
+        let mistralAccount = mistral.apiSecretAccount(for: .mistral)
+        assert(mistralAccount == "api:mistral:https://api.mistral.ai/v1")
+        mistral.providers["mistral"] = .init(model: "mistral-test", baseURL: "https://api.mistral.ai/v1/")
+        mistral.providers["openAICompatible"] = .init(model: "compatible-test", baseURL: "https://api.mistral.ai/v1")
+        try mistral.validate()
+        assert(mistral.apiSecretAccount(for: .mistral) == mistralAccount)
+        assert(mistral.apiSecretAccount(for: .openAICompatible) != mistralAccount)
+        let restoredMistral = try JSONDecoder().decode(AppConfiguration.self, from: JSONEncoder().encode(mistral))
+        assert(restoredMistral.provider == .mistral && restoredMistral.ssh == config.ssh)
+        assert(restoredMistral.providers == mistral.providers && restoredMistral.providers["claude"] == config.providers["claude"])
         var subscription = config
         subscription.provider = .claudeCode
         try subscription.validate()

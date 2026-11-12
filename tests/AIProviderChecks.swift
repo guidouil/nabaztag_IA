@@ -52,7 +52,18 @@ struct AIProviderChecks {
         assert(grok.url?.absoluteString == "https://api.x.ai/v1/chat/completions")
         check(try body(grok)["max_completion_tokens"] as? Int == 2048)
         check(try body(grok)["reasoning_effort"] as? String == "low")
-        for provider in [AIProvider.claude, .gemini, .grok, .openAICompatible] {
+        let mistral = try RemoteAI.makeRequest(prompt, provider: .mistral, model: AIProvider.mistral.defaultModel,
+                                               apiKey: "test-key", baseURL: AIProvider.mistral.defaultBaseURL)
+        assert(AIProvider.mistral.title == "Mistral · API")
+        assert(mistral.url?.absoluteString == "https://api.mistral.ai/v1/chat/completions")
+        assert(mistral.httpMethod == "POST" && mistral.timeoutInterval == 60)
+        assert(mistral.value(forHTTPHeaderField: "Authorization") == "Bearer test-key")
+        let mistralBody = try body(mistral)
+        assert(mistralBody["model"] as? String == "mistral-small-latest")
+        assert((mistralBody["messages"] as? [[String: String]])?.first == ["role": "user", "content": prompt])
+        assert(mistralBody["max_tokens"] as? Int == 2048 && mistralBody["stream"] as? Bool == false)
+        assert(mistralBody["reasoning_effort"] == nil && mistralBody["max_completion_tokens"] == nil)
+        for provider in [AIProvider.claude, .gemini, .grok, .mistral, .openAICompatible] {
             let custom = try RemoteAI.makeRequest(prompt, provider: provider, model: "custom-model",
                                                   apiKey: "test-key", baseURL: "https://example.com/v1")
             let customBody = try body(custom)
@@ -73,7 +84,7 @@ struct AIProviderChecks {
                      "https://example.com/v1?key=secret", "https://example.com/v1#fragment", "not a URL"] {
             fails { _ = try RemoteAI.makeRequest(prompt, provider: .openAICompatible, model: "model", apiKey: "test-key", baseURL: base) }
         }
-        for provider in [AIProvider.claude, .grok, .gemini, .openAICompatible] {
+        for provider in [AIProvider.claude, .grok, .gemini, .mistral, .openAICompatible] {
             fails { _ = try RemoteAI.makeRequest(prompt, provider: provider, model: "model", apiKey: "", baseURL: provider.defaultBaseURL) }
         }
         for model in ["../model", "models/model", "model?key=value", "model:generateContent", "model%2Fother", ""] {
@@ -88,8 +99,10 @@ struct AIProviderChecks {
         check(try fixture(#"{"content":[{"type":"thinking","thinking":"privé"},{"type":"text","text":"Bonjour."}],"stop_reason":"end_turn"}"#, provider: .claude) == "Bonjour.")
         check(try fixture(#"{"candidates":[{"content":{"parts":[{"text":"pensée","thought":true},{"text":"Bonjour."}]},"finishReason":"STOP"}]}"#, provider: .gemini) == "Bonjour.")
         check(try fixture(#"{"choices":[{"message":{"content":"Bonjour."},"finish_reason":"stop"}]}"#, provider: .grok) == "Bonjour.")
+        check(try fixture(#"{"choices":[{"message":{"content":"  Bonjour.\n"},"finish_reason":"stop"}]}"#, provider: .mistral) == "Bonjour.")
+        check(try fixture(#"{"choices":[{"message":{"content":[{"type":"thinking","thinking":[{"type":"text","text":"privé"}]},{"type":"text","text":"Bonjour."}]},"finish_reason":"stop"}]}"#, provider: .mistral) == "Bonjour.")
         check(try fixture(#"{"choices":[{"message":{"content":[{"type":"text","text":"Bonjour."}]}}]}"#, provider: .openAICompatible) == "Bonjour.")
-        for provider in [AIProvider.claude, .gemini, .grok, .openAICompatible] {
+        for provider in [AIProvider.claude, .gemini, .grok, .mistral, .openAICompatible] {
             fails { _ = try fixture("{}", provider: provider) }
             fails { _ = try fixture("not JSON", provider: provider) }
             fails { _ = try fixture("[]", provider: provider) }
@@ -99,6 +112,12 @@ struct AIProviderChecks {
         fails { _ = try fixture(#"{"content":[{"type":"text","text":"tronqué"}],"stop_reason":"max_tokens"}"#, provider: .claude) }
         fails { _ = try fixture(#"{"candidates":[{"finishReason":"MAX_TOKENS"}]}"#, provider: .gemini) }
         fails { _ = try fixture(#"{"choices":[{"finish_reason":"length"}]}"#, provider: .grok) }
+        fails { _ = try fixture(#"{"choices":[{"message":{"content":"tronqué"},"finish_reason":"length"}]}"#, provider: .mistral) }
+        do { _ = try fixture(#"{"message":"Clé test-key invalide"}"#, provider: .mistral, status: 401); assertionFailure() }
+        catch {
+            assert(error.localizedDescription.contains("Mistral · API") && error.localizedDescription.contains("401"))
+            assert(error.localizedDescription.contains("[clé masquée]") && !error.localizedDescription.contains("test-key"))
+        }
 
         let reflectedKey = "secret-\"slash\\token"
         let reflected = try JSONSerialization.data(withJSONObject: ["error": ["message": reflectedKey + String(repeating: " échec", count: 100)]])
