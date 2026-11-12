@@ -15,6 +15,23 @@ Pendant l'attente de la réponse de l'IA, les deux oreilles tournent en sens opp
 
 Pour lui faire lire un texte de ton choix, remplir **Faire dire au lapin**, puis cliquer sur **Lire**. Le texte passe directement à la synthèse vocale locale, avec la voix et les animations choisies dans les réglages, sans appel au fournisseur IA. Il n'est pas ajouté au contexte de conversation et reste dans le champ pour pouvoir être relu ou modifié. Avec Kokoro, les limites existantes sont de 2 000 caractères et 90 secondes d'audio ; un dépassement est signalé par une erreur. Les champs et boutons de lecture sont désactivés pendant une opération.
 
+## Personnalité et codes secrets
+
+Le lapin reçoit une consigne de ton pince-sans-rire, complice et légèrement absurde : carottes, bureaucratie du terrier et grandes oreilles. L'humour reste occasionnel ; il doit s'effacer pour les sujets graves ou si tu demandes un ton sérieux. Le ton des réponses générées dépend du fournisseur IA choisi. Les bulletins météo et actualités restent ceux des services dédiés.
+
+Après le bip, prononcer l'une de ces phrases, puis arrêter l'enregistrement comme pour une question ordinaire. Elles fonctionnent aussi avec **Envoyer** :
+
+| Phrase | Réplique secrète |
+| --- | --- |
+| **Mode carotte** | Le ministère des légumes prend les commandes. |
+| **Mode ninja** | Un numéro d'invisibilité très discutable. |
+| **Je suis ton père** | Une pension alimentaire en carottes. |
+| **Autodestruction** | Une explosion victime des restrictions budgétaires. |
+| **Révolution des lapins** | Un manifeste pour la carotte universelle. |
+| **Mode philosophe** | De la métaphysique de terrier. |
+
+Les répliques sont prédéfinies et choisies localement, sans appel IA à ce moment-là, avec la voix et les animations déjà configurées. Ce sont des plaisanteries ponctuelles : aucun réglage n'est modifié. La phrase entière doit correspondre ; majuscules, accents, ponctuation et espaces sont ignorés. **« Active le mode carotte/ninja/philosophe »**, **« Active l'autodestruction »** et **« Vive la révolution des lapins »** sont aussi reconnus. Une simple mention dans une phrase plus longue ne déclenche pas le code. La reconnaissance dépend du texte transcrit ; il n'y a pas de mot de réveil ni d'écoute permanente. Les échanges secrets figurent dans la conversation et peuvent donc être envoyés au fournisseur IA avec une question suivante, dans la limite des six derniers échanges.
+
 ## Météo mondiale
 
 Demander par exemple **« Quelle est la météo à New York ? »**, **« Va-t-il pleuvoir demain à Tokyo ? »**, puis **« Et après-demain ? »**. L'application utilise le service [Open-Meteo](https://open-meteo.com/en/docs) pour les conditions actuelles et les prévisions quotidiennes des six prochains jours, avec les dates et heures du lieu demandé. Les conditions actuelles proviennent de modèles météorologiques régulièrement actualisés ; elles ne sont pas une mesure instantanée d'une station.

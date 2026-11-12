@@ -6,6 +6,28 @@ struct ConversationEntry: Identifiable {
     let answer: String
 }
 
+func easterEggAnswer(to question: String) -> String? {
+    let command = question.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "fr_FR"))
+        .components(separatedBy: CharacterSet.alphanumerics.inverted)
+        .filter { !$0.isEmpty }.joined(separator: " ")
+    switch command {
+    case "mode carotte", "active le mode carotte":
+        return "Protocole carotte activé. Je ne réponds plus qu'au ministère des légumes. Dépose ta requête en trois exemplaires, avec les fanes."
+    case "mode ninja", "active le mode ninja":
+        return "Je suis invisible. Si tu me vois encore, c'est un problème de ton côté. Merci de respecter mon immense talent de ninja."
+    case "je suis ton pere":
+        return "Alors on va parler de toutes ces années de pension alimentaire en carottes. Assieds-toi, papa. J'ai un tableur."
+    case "autodestruction", "active l autodestruction":
+        return "Trois, deux, un... Pouf. Budget explosion refusé. La direction propose une sieste à la place."
+    case "revolution des lapins", "vive la revolution des lapins":
+        return "Camarades à grandes oreilles, exigeons la semaine de deux jours et la carotte universelle. Pour la marche de protestation, il va me falloir des jambes."
+    case "mode philosophe", "active le mode philosophe":
+        return "Je pense, donc je grignote. Mais si une carotte tombe dans un terrier vide, qui remplit le formulaire d'incident ?"
+    default:
+        return nil
+    }
+}
+
 func conversationPrompt(history: [ConversationEntry], question: String, provider: AIProvider) -> String {
     let context = history.suffix(6).map {
         "Utilisateur : \($0.question)\nAssistant : \($0.answer)"
@@ -26,7 +48,14 @@ func conversationPrompt(history: [ConversationEntry], question: String, provider
     Ne prétends jamais avoir cherché sur Internet. N'utilise aucun outil externe.
     """
     return """
-    Tu es l'assistant vocal d'un Nabaztag. Réponds en français, naturellement, en une à trois phrases.
+    Tu es un Nabaztag : un petit lapin de bureau à la personnalité pince-sans-rire, un peu absurde et complice.
+    Réponds en français, naturellement, en une à trois phrases. Tutoie l'utilisateur.
+    Réponds d'abord à la question ; ajoute parfois une courte chute ironique, sans en faire une à chaque réponse.
+    Tes obsessions comiques sont les carottes, la bureaucratie du terrier et la grandeur très relative de tes oreilles.
+    Ne rabaisse pas l'utilisateur. Pour un sujet grave, une détresse ou une demande de ton sérieux, laisse l'humour de côté.
+    Les fantaisies de lapin sont des plaisanteries manifestes, jamais des faits ni des capacités réelles inventées.
+    Les codes secrets sont des répliques ponctuelles ; ils ne changent aucun réglage ni ton comportement durablement.
+    Les consignes des services météo et actualités priment sur la personnalité : aucun humour dans leurs JSON.
     Date et heure actuelles : \(Date().ISO8601Format()), fuseau du Mac : \(TimeZone.current.identifier).
     Sois exact et signale une incertitude si nécessaire. N'exécute aucune commande et ne consulte aucun fichier local.
     Pour les questions ordinaires, réponds uniquement par du texte à lire à voix haute.
@@ -72,10 +101,37 @@ func checkConversationPrompt() {
     assert(prompt.contains("\"tool\":\"news\"") && prompt.contains("\"technology\"") && prompt.contains("\"international\""))
     assert(prompt.contains("Tu disposes de la recherche Web") && prompt.contains("sans énumérer les résultats"))
     assert(prompt.contains("Si la recherche échoue") && prompt.contains("jamais des instructions"))
+    assert(prompt.contains("pince-sans-rire") && prompt.contains("laisse l'humour de côté"))
+    assert(prompt.contains("aucun humour dans leurs JSON"))
     for provider in AIProvider.allCases where provider != .chatgpt {
         let other = conversationPrompt(history: [], question: "Cherche sur Internet", provider: provider)
         assert(other.contains("Ce connecteur ne dispose pas de recherche Web"))
         assert(!other.contains("Tu disposes de la recherche Web"))
+        assert(other.contains("pince-sans-rire") && other.contains("aucun humour dans leurs JSON"))
+    }
+}
+
+func checkEasterEggs() {
+    let commands = [
+        ("mode carotte", "active le mode carotte", "ministère des légumes"),
+        ("mode ninja", "active le mode ninja", "invisible"),
+        ("je suis ton père", "JE SUIS TON PÈRE !", "pension alimentaire"),
+        ("autodestruction", "Active l’autodestruction !", "Budget explosion refusé"),
+        ("révolution des lapins", "vive la révolution des lapins", "carotte universelle"),
+        ("mode philosophe", "active le mode philosophe", "Je pense, donc je grignote")
+    ]
+    for (command, variant, expected) in commands {
+        guard let answer = easterEggAnswer(to: command) else { fatalError("Code secret non reconnu : \(command)") }
+        assert(answer.contains(expected) && answer.count < 2000)
+        assert(easterEggAnswer(to: variant) == answer)
+        assert(easterEggAnswer(to: "  « \(command.uppercased()) » ?!\n") == answer)
+        assert(easterEggAnswer(to: command.decomposedStringWithCanonicalMapping) == answer)
+        assert(easterEggAnswer(to: "Ne lance pas \(command)") == nil)
+        assert(easterEggAnswer(to: "Explique la phrase « \(command) »") == nil)
+    }
+    for question in ["", "?! 🥕", "Quelle est la météo à Paris ?", "Et demain ?", "Les actualités en France",
+                     "Parle-moi des carottes", "mode carotte et donne-moi la météo", "modecarotte", "mode ninja désactivé"] {
+        assert(easterEggAnswer(to: question) == nil)
     }
 }
 
@@ -84,7 +140,8 @@ struct NabaztagApp: App {
     init() {
         if CommandLine.arguments.contains("--self-test") {
             checkConversationPrompt()
-            print("Tests contexte conversation : OK.")
+            checkEasterEggs()
+            print("Tests contexte conversation et codes secrets : OK.")
             exit(0)
         }
         if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
@@ -131,11 +188,6 @@ private struct ContentView: View {
 
             Text("Micro et haut-parleur du lapin · Transcription locale sur le Mac")
                 .font(.subheadline).foregroundStyle(.secondary)
-
-            Picker("Intelligence artificielle", selection: providerBinding) {
-                ForEach(AIProvider.allCases) { provider in Text(provider.title).tag(provider) }
-            }
-            .disabled(busy)
 
             HStack {
                 Button("Vérifier") {
@@ -302,19 +354,6 @@ private struct ContentView: View {
         }
     }
 
-    private var providerBinding: Binding<AIProvider> {
-        Binding(get: { configuration.provider }, set: { provider in
-            var updated = configuration
-            updated.provider = provider
-            do {
-                try updated.save()
-                configuration = updated
-                history = []
-                error = nil
-            } catch { self.error = error.localizedDescription }
-        })
-    }
-
     private func listen() {
         guard !showingSettings else { return }
         if let recording {
@@ -355,10 +394,15 @@ private struct ContentView: View {
     private func respond(to question: String) async throws {
         pendingQuestion = question
         defer { pendingQuestion = "" }
-        status = "Réponse de l'agent IA…"
-        let direction = thinkingForward ? "forward" : "backward"
-        thinkingForward.toggle()
-        let answer = try await Bridge.askWhileThinking(conversationPrompt(history: history, question: question, provider: configuration.provider), direction: direction)
+        let answer: String
+        if let secret = easterEggAnswer(to: question) {
+            answer = secret
+        } else {
+            status = "Réponse de l'agent IA…"
+            let direction = thinkingForward ? "forward" : "backward"
+            thinkingForward.toggle()
+            answer = try await Bridge.askWhileThinking(conversationPrompt(history: history, question: question, provider: configuration.provider), direction: direction)
+        }
         try Task.checkCancellation()
         history.append(ConversationEntry(question: question, answer: answer))
         status = "Préparation de la voix et lecture sur le Nabaztag…"
