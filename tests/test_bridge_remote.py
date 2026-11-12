@@ -26,13 +26,13 @@ def wav_data(channels=1, width=2, rate=16000, frames=160):
 
 def decoded_choreography(resource):
     data = base64.b64decode(resource.split(",", 1)[1], validate=True)
-    sizes = {0: 0, 1: 1, 7: 6, 17: 2, 19: 0, 20: 2}
+    sizes = {0: 0, 1: 1, 7: 6, 8: 3, 17: 2, 19: 0, 20: 2}
     index, elapsed, frame_ms, events = 0, 0, 0, []
     while index < len(data):
         delay, opcode = data[index:index + 2]
         index += 2
         elapsed += delay * frame_ms / 1000
-        assert opcode in sizes, "No absolute movement, MIDI or loop"
+        assert opcode in sizes, "No MIDI or loop"
         operands = tuple(data[index:index + sizes[opcode]])
         assert len(operands) == sizes[opcode]
         index += sizes[opcode]
@@ -126,7 +126,7 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                 bridge.parse_action(command)
 
     def test_effect_options_allowlist(self):
-        for ears in ("off", "small", "large"):
+        for ears in ("off", "on", "small", "large"):
             for lights in ("off", "fixed", "random"):
                 options = (ears, lights, "12AbEF")
                 command = "play-animated " + " ".join(options)
@@ -290,9 +290,9 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
             with self.assertRaisesRegex(ValueError, "Device busy"):
                 bridge.run_audio(["arecord"], timeout=5)
 
-    def test_ear_choreography_is_finite_relative_and_compensated(self):
+    def test_response_choreography_is_finite_and_keeps_effects_independent(self):
         for duration in (0.01, 6, 37, 90):
-            for ears in ("off", "small", "large"):
+            for ears in ("off", "on", "small", "large"):
                 for lights in ("off", "fixed", "random"):
                     with self.subTest(duration=duration, ears=ears, lights=lights):
                         resource, motion_duration = bridge.response_choreography(duration, (ears, lights, "002838"))
@@ -301,9 +301,7 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                             self.assertEqual(motion_duration, 0)
                             continue
                         events, elapsed = decoded_choreography(resource)
-                        directions, positions, moved = [None, None], [0, 0], []
-                        led_events = []
-                        bound = 3 if ears == "large" else 1
+                        ear_events, led_events = [], []
                         for timestamp, opcode, operands in events:
                             if opcode == 7:
                                 self.assertNotEqual(lights, "off")
@@ -314,53 +312,69 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                                 if lights == "fixed":
                                     self.assertEqual((timestamp, red, green, blue), (0, 0, 40, 56))
                                 led_events.append((timestamp, led, (red, green, blue)))
-                            elif opcode == 20:
+                            elif opcode == 8:
+                                motor, position, direction = operands
                                 self.assertNotEqual(ears, "off")
-                                directions[operands[0]] = operands[1]
-                            elif opcode == 17:
-                                motor, delta = operands
-                                self.assertNotEqual(ears, "off")
-                                self.assertEqual(delta, bound)
-                                positions[motor] += -delta if directions[motor] else delta
-                                self.assertTrue(all(-bound <= position <= 0 for position in positions))
-                                moved.append((timestamp, motor))
-                        self.assertEqual(positions, [0, 0])
-                        self.assertEqual([motor for _, motor in moved],
-                                         [motor for pulse in range(len(moved) // 2)
-                                          for motor in (pulse % 2, pulse % 2)])
+                                self.assertIn(motor, (0, 1))
+                                self.assertIn(position, (0, 5, 10, 14))
+                                self.assertEqual(direction, 0)
+                                ear_events.append((timestamp, operands))
+                            else:
+                                self.assertIn(opcode, (0, 1))
                         if ears == "off":
-                            self.assertEqual(moved, [])
+                            self.assertEqual(ear_events, [])
                         else:
-                            self.assertTrue(moved)
-                            for start, end in zip(moved[::2], moved[1::2]):
-                                self.assertGreaterEqual(round(end[0] - start[0], 6), 1.2 if ears == "large" else 0.6)
+                            initial = ear_events[:2]
+                            self.assertEqual([time for time, _ in initial], [0, 0])
+                            self.assertEqual([values[0] for _, values in initial], [0, 1])
+                            self.assertIn(tuple(values[1] for _, values in initial), ((0, 10), (10, 0)))
+                            self.assertTrue(all(time >= 21.6 for time, _ in ear_events[2:]))
                         self.assertEqual(bool(led_events), lights != "off")
                         self.assertAlmostEqual(elapsed, motion_duration)
+                        self.assertGreaterEqual(motion_duration, duration)
                         self.assertLessEqual(motion_duration, 90)
 
-    def test_legacy_effect_defaults_are_unchanged(self):
-        self.assertEqual(bridge.response_choreography(6),
-                         bridge.response_choreography(6, ("small", "fixed", "002838")))
+    def test_legacy_ear_modes_are_aliases_of_native_motion(self):
+        for ears in ("on", "small", "large"):
+            with mock.patch.object(bridge.random, "choice", side_effect=lambda values: values[0]), \
+                 mock.patch.object(bridge.random, "randint", side_effect=lambda low, high: low):
+                self.assertEqual(bridge.response_choreography(6),
+                                 bridge.response_choreography(6, (ears, "fixed", "002838")))
 
-    def test_stream_effect_cycles_alternate_initial_motor_and_remain_compensated(self):
-        for ears, duration, delta in (("small", 1.2, 1), ("large", 2.4, 3)):
-            for first_motor in (0, 1):
-                resource, actual_duration = bridge.response_choreography(
-                    duration, (ears, "off", "002838"), first_motor=first_motor)
+    def test_native_ear_timing_probability_and_positions_survive_stream_cycles(self):
+        state, ear_events = {}, []
+        # Minimum native interval: 45 ticks * 160 ms * 3 loops = 21.6 seconds.
+        choices = [(10, 0), 45, 5, 14, 45, 45, 0, 10, 45, 14, 5, 45]
+        draws = [160, 3, 0, 160, 3, 1, 160, 3, 0, 160, 3, 0, 160, 3]
+        with mock.patch.object(bridge.random, "choice", side_effect=choices), \
+             mock.patch.object(bridge.random, "randint", side_effect=draws) as randint:
+            for cycle in range(75):
+                resource, duration = bridge.response_choreography(1.2, ("on", "off", "002838"), state)
                 events, _ = decoded_choreography(resource)
-                self.assertEqual(actual_duration, duration)
-                directions, positions, motors = [0, 0], [0, 0], []
-                for _, opcode, values in events:
-                    if opcode == 20:
-                        directions[values[0]] = values[1]
-                    elif opcode == 17:
-                        motor, amount = values
-                        self.assertEqual(amount, delta)
-                        positions[motor] += -amount if directions[motor] else amount
-                        self.assertTrue(all(-delta <= position <= 0 for position in positions))
-                        motors.append(motor)
-                self.assertEqual(motors, [first_motor, first_motor])
-                self.assertEqual(positions, [0, 0])
+                ear_events.extend((round(cycle * 1.2 + timestamp, 2), values)
+                                  for timestamp, opcode, values in events if opcode == 8)
+                self.assertEqual(duration, 1.2)
+        self.assertEqual(ear_events, [
+            (0, (0, 10, 0)), (0, (1, 0, 0)),
+            (21.6, (0, 5, 0)), (21.6, (1, 14, 0)),
+            (64.8, (0, 0, 0)), (64.8, (1, 10, 0)),
+            (86.4, (0, 14, 0)), (86.4, (1, 5, 0)),
+        ])
+        self.assertEqual(randint.call_args_list, [
+            mock.call(160, 250), mock.call(3, 20),
+            mock.call(0, 0), mock.call(160, 250), mock.call(3, 20),
+            mock.call(0, 1), mock.call(160, 250), mock.call(3, 20),
+            mock.call(0, 1), mock.call(160, 250), mock.call(3, 20),
+            mock.call(0, 2), mock.call(160, 250), mock.call(3, 20),
+        ])
+
+    def test_native_ears_hold_initial_pose_for_longest_interval(self):
+        with mock.patch.object(bridge.random, "choice", side_effect=[(0, 10), 72]), \
+             mock.patch.object(bridge.random, "randint", side_effect=[250, 20]):
+            resource, _ = bridge.response_choreography(90, ("on", "off", "002838"))
+        events, _ = decoded_choreography(resource)
+        self.assertEqual([(timestamp, values) for timestamp, opcode, values in events if opcode == 8],
+                         [(0, (0, 0, 0)), (0, (1, 10, 0))])
 
     def test_stream_delivers_first_pcm_before_eof_and_ready_precedes_input(self):
         failures = []
@@ -559,11 +573,12 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
             self.assertFalse(thread.is_alive())
             self.assertEqual(failures, [])
             self.assertEqual(len(commands), len(completed))
-            first_motors = []
+            ear_commands = []
             for command in commands[:2]:
                 events, _ = decoded_choreography(command["sequence"][0]["choreography"])
-                first_motors.append(next(values[0] for _, opcode, values in events if opcode == 17))
-            self.assertEqual(first_motors, [0, 1])
+                ear_commands.append([values for _, opcode, values in events if opcode == 8])
+            self.assertEqual(len(ear_commands[0]), 2)
+            self.assertEqual(ear_commands[1], [])
 
     def test_fixed_colors_preserve_low_values_and_attenuate_high_values(self):
         for color, expected in (("002838", (0, 40, 56)), ("120a08", (18, 10, 8)),

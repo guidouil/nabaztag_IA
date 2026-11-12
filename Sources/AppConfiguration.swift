@@ -6,14 +6,15 @@ enum VoiceEngine: String, Codable, CaseIterable, Identifiable {
     var title: String { self == .kokoro ? "Siwis · Kokoro local" : "Thomas · macOS" }
 }
 
-enum EarMotion: String, Codable, CaseIterable, Identifiable {
-    case off, small, large
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .off: return "Aucun"
-        case .small: return "Petits"
-        case .large: return "Grands"
+enum EarMotion: String, Codable, CaseIterable {
+    case off, on
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        switch try container.decode(String.self) {
+        case "off": self = .off
+        case "on", "small", "large": self = .on
+        default: throw DecodingError.dataCorruptedError(in: container, debugDescription: "Mouvement des oreilles inconnu.")
         }
     }
 }
@@ -47,7 +48,7 @@ struct AppConfiguration: Codable {
     private static let storageKey = "nabaztag.configuration"
 
     var selectedVoiceEngine: VoiceEngine { voiceEngine ?? (LocalVoice.isInstalled ? .kokoro : .macOS) }
-    var selectedEarMotion: EarMotion { earMotion ?? (animateResponses == false ? .off : .small) }
+    var selectedEarMotion: EarMotion { earMotion ?? (animateResponses == false ? .off : .on) }
     var selectedLightMode: LightMode { lightMode ?? (animateResponses == false ? .off : .fixed) }
     var selectedLightColorHex: String { (lightColorHex ?? "002838").uppercased() }
     var animationsEnabled: Bool { selectedEarMotion != .off || selectedLightMode != .off }

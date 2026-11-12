@@ -9,9 +9,9 @@ struct AppConfigurationChecks {
         try config.validate()
         assert(config.provider == .chatgpt)
         assert(config.animationsEnabled)
-        assert(config.selectedEarMotion == .small && config.selectedLightMode == .fixed)
+        assert(config.selectedEarMotion == .on && config.selectedLightMode == .fixed)
         assert(config.selectedLightColorHex == "002838")
-        assert(config.playbackAction == "play-animated small fixed 002838")
+        assert(config.playbackAction == "play-animated on fixed 002838")
         config.provider = .claude
         try config.validate()
         let oldAccount = config.apiSecretAccount(for: .claude)
@@ -67,10 +67,26 @@ struct AppConfigurationChecks {
             var oldJSON = legacy
             oldJSON["animateResponses"] = oldSetting
             let restored = try JSONDecoder().decode(AppConfiguration.self, from: JSONSerialization.data(withJSONObject: oldJSON))
-            assert(restored.selectedEarMotion == (oldSetting == false ? .off : .small))
+            assert(restored.selectedEarMotion == (oldSetting == false ? .off : .on))
             assert(restored.selectedLightMode == (oldSetting == false ? .off : .fixed))
             assert(restored.selectedLightColorHex == "002838")
         }
+        for oldMotion in ["off", "small", "large"] {
+            var oldJSON = legacy
+            oldJSON["animateResponses"] = false
+            oldJSON["earMotion"] = oldMotion
+            oldJSON["lightMode"] = "random"
+            let restored = try JSONDecoder().decode(AppConfiguration.self, from: JSONSerialization.data(withJSONObject: oldJSON))
+            let expected: EarMotion = oldMotion == "off" ? .off : .on
+            assert(restored.selectedEarMotion == expected && restored.selectedLightMode == .random)
+            assert(restored.ssh == config.ssh && restored.providers == config.providers)
+            let saved = try JSONSerialization.jsonObject(with: JSONEncoder().encode(restored)) as! [String: Any]
+            assert(saved["earMotion"] as? String == expected.rawValue)
+        }
+        do {
+            _ = try JSONDecoder().decode(EarMotion.self, from: Data("\"unknown\"".utf8))
+            assertionFailure("Un mouvement inconnu doit être refusé.")
+        } catch {}
         for ears in EarMotion.allCases {
             for lights in LightMode.allCases {
                 config.earMotion = ears
@@ -87,10 +103,10 @@ struct AppConfigurationChecks {
                 assert(roundTrip.selectedLightColorHex == "A1B2C3" && roundTrip.playbackAction == expected)
             }
         }
-        config.earMotion = .small
+        config.earMotion = .on
         config.lightMode = .random
         let example = try JSONDecoder().decode(AppConfiguration.self, from: JSONEncoder().encode(config))
-        assert(example.playbackAction == "play-animated small random A1B2C3")
+        assert(example.playbackAction == "play-animated on random A1B2C3")
         assert(example.ssh == config.ssh && example.provider == config.provider && example.providers == config.providers)
         assert(example.selectedVoiceEngine == config.selectedVoiceEngine)
         var partial = config
@@ -106,6 +122,6 @@ struct AppConfigurationChecks {
             config.providers[AIProvider.claude.rawValue]?.baseURL = endpoint
             do { try config.validate(); assertionFailure("URL dangereuse acceptée") } catch {}
         }
-        print("Tests AppConfiguration : OK (défauts, migrations, Claude abonnement/API séparés, neuf combinaisons d’effets, couleurs, JSON, voix et autres réglages préservés).")
+        print("Tests AppConfiguration : OK (défauts, migrations vers oreilles on/off, Claude abonnement/API séparés, six combinaisons d’effets, couleurs, JSON, voix et autres réglages préservés).")
     }
 }

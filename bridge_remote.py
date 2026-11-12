@@ -34,7 +34,9 @@ STREAM_WALL_TIMEOUT = 150
 MAX_CAPTURE_SECONDS = 90
 THINK_WALL_TIMEOUT = 210
 THINK_CYCLE_TIMEOUT = 15
-DEFAULT_EFFECTS = ("small", "fixed", "002838")
+DEFAULT_EFFECTS = ("on", "fixed", "002838")
+# shortcut: native timings pinned to Pynab 9c5dc139's streaming/{1,2,3,4}.chor; recheck when upgrading Pynab.
+STREAMING_CHOREOGRAPHY_TICKS = (70, 45, 72, 63)
 LIGHT_PALETTE = ((56, 8, 32), (64, 28, 0), (8, 56, 24),
                  (8, 24, 64), (40, 12, 56), (0, 40, 56))
 
@@ -49,7 +51,7 @@ def parse_action(command):
         return "think", args[1]
     if len(args) == 4 and args[0] in ("play-animated", "play-stream", "play-queue"):
         ears, lights, color = args[1:]
-        if ears in ("off", "small", "large") and lights in ("off", "fixed", "random") and \
+        if ears in ("off", "on", "small", "large") and lights in ("off", "fixed", "random") and \
                 len(color) == 6 and all(character in "0123456789abcdefABCDEF" for character in color):
             return args[0], (ears, lights, color)
     if len(args) == 2 and args[0] == "record":
@@ -290,37 +292,56 @@ def think(direction):
                 signal.signal(signum, handler)
 
 
-def response_choreography(duration, options=DEFAULT_EFFECTS, first_motor=0):
+def response_choreography(duration, options=DEFAULT_EFFECTS, ear_state=None):
     ears, lights, color = options
     if ears == "off" and lights == "off":
         return None, 0
-    slots = min(75, max(1, math.ceil(duration / 1.2)))
-    if ears == "large":
-        slots = min(74, slots + slots % 2)  # A large retreat and return need two 1.2 s slots.
+    frames = min(9000, max(1, math.ceil(duration * 100)))
+    events = []
+    if ears != "off":
+        state = ear_state if ear_state is not None else {}
+        start = state.get("elapsed", 0)
+        end = start + frames
+        next_frame = state.get("next", 0)
+        while next_frame < end:
+            # Same positions, direction, probability and timing as Pynab's play_streaming.
+            if "next" not in state:
+                positions = random.choice(((0, 10), (10, 0)))
+                state["chance"] = 0
+            elif random.randint(0, state["chance"]) == 0:
+                positions = (random.choice((0, 5, 10, 14)), random.choice((0, 5, 10, 14)))
+                state["chance"] = (state["chance"] + 1) % 4
+            else:
+                positions = ()
+            for motor, position in enumerate(positions):
+                events.append((next_frame - start, [8, motor, position, 0]))
+            ticks = random.choice(STREAMING_CHOREOGRAPHY_TICKS)
+            tempo = random.randint(160, 250)
+            loops = random.randint(3, 20)
+            next_frame += round(ticks * tempo * loops / 10)
+            state["next"] = next_frame
+        state["elapsed"] = end
     rgb = tuple(bytes.fromhex(color))
     peak = max(rgb)
     if peak > 64:
         rgb = tuple(round(value * 64 / peak) for value in rgb)
-    choreography = bytearray([0, 1, 10])  # MTL frame duration: 100 ms.
-    for slot in range(slots):
+    for slot in range(math.ceil(frames / 120)):
         colors = random.sample(LIGHT_PALETTE, 3) if lights == "random" else \
             [rgb] * 3 if lights == "fixed" and slot == 0 else []
         for led, (red, green, blue) in zip((1, 2, 3), colors):
-            choreography.extend([0, 7, led, red, green, blue, 0, 0])
-        # Keep every ear between rest and rest-delta, so idle returns in the forward direction.
-        if ears == "small":
-            motor = (first_motor + slot) % 2
-            choreography.extend([
-                0, 20, motor, 1, 0, 17, motor, 1, 0, 19,
-                6, 20, motor, 0, 0, 17, motor, 1, 0, 19, 6, 0,
-            ])
-        elif ears == "large":
-            motor, direction = (first_motor + slot // 2) % 2, 1 - slot % 2
-            choreography.extend([0, 20, motor, direction, 0, 17, motor, 3, 0, 19, 12, 0])
-        else:
-            choreography.extend([12, 0])
+            events.append((slot * 120, [7, led, red, green, blue, 0, 0]))
+    events.append((frames, [0]))
+    choreography = bytearray([0, 1, 1])  # MTL frame duration: 10 ms.
+    previous_frame = 0
+    for frame, instruction in sorted(events, key=lambda event: event[0]):
+        delay = frame - previous_frame
+        while delay > 255:
+            choreography.extend([255, 0])
+            delay -= 255
+        choreography.extend([delay] + instruction)
+        previous_frame = frame
     resource = "data:application/x-nabaztag-mtl-choreography;base64,"
-    return resource + base64.b64encode(choreography).decode("ascii"), slots * 1.2
+    return resource + base64.b64encode(choreography).decode("ascii"), frames / 100
 
 
 def finish_ears(sock, stream, request_id, deadline, cancel=False):
@@ -369,7 +390,7 @@ def play(data, animate=False, options=None):
             raise
         finally:
             try:
-                # Finish the compensated movement before idle, avoiding its cyan positioning light.
+                # Pynab restores the resting ear positions when the reservation is released.
                 finish_ears(sock, stream, request_id, max(motion_deadline, time.monotonic() + 5), cancel=failed)
             except Exception as error:
                 if not failed:
@@ -391,17 +412,16 @@ def stream_play(input_stream, options=DEFAULT_EFFECTS, queued=False):
 
         def animate():
             try:
-                motor, sequence = 0, 0
-                cycle = 2.4 if options[0] == "large" else 1.2
+                ear_state, sequence = {}, 0
                 while not stop.is_set():
-                    choreography, duration = response_choreography(cycle, options, first_motor=motor)
+                    choreography, duration = response_choreography(1.2, options, ear_state)
                     request_id = "mac-bridge-stream-" + str(sequence)
                     # Finite cycles also bound residual motion if nabd loses this connection.
                     send(sock, {"type": "command", "request_id": request_id, "cancelable": True,
                                 "sequence": [{"choreography": choreography}]})
                     finish_ears(sock, stream, request_id,
                                 min(deadline + 8, time.monotonic() + duration + 5))
-                    motor, sequence = 1 - motor, sequence + 1
+                    sequence += 1
             except Exception as error:
                 animation_errors.append(error)
                 stop.set()

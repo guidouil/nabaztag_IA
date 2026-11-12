@@ -35,7 +35,7 @@ struct StreamPlaybackChecks {
         var configuration = AppConfiguration()
         configuration.ssh.host = "fixture.local"
         configuration.ssh.keyPath = key.path
-        configuration.earMotion = .large
+        configuration.earMotion = .on
         configuration.lightMode = .random
         configuration.lightColorHex = "AABBCC"
 

@@ -57,7 +57,7 @@ struct SSHSettings: Codable, Equatable {
         let isThinking = fields.count == 2 && fields[0] == "think" &&
             ["forward", "backward"].contains(String(fields[1]))
         let isConfiguredPlayback = fields.count == 4 && ["play-animated", "play-stream", "play-queue"].contains(String(fields[0])) &&
-            ["off", "small", "large"].contains(String(fields[1])) &&
+            ["off", "on", "small", "large"].contains(String(fields[1])) &&
             ["off", "fixed", "random"].contains(String(fields[2])) &&
             fields[3].utf8.count == 6 &&
             fields[3].range(of: "^[0-9A-Fa-f]{6}$", options: .regularExpression) != nil

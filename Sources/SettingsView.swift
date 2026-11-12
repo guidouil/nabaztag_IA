@@ -92,9 +92,8 @@ struct SettingsView: View {
                     }
 
                     Section("Animations") {
-                        Picker("Mouvements des oreilles", selection: Binding(get: { configuration.selectedEarMotion }, set: { configuration.earMotion = $0 })) {
-                            ForEach(EarMotion.allCases) { motion in Text(motion.title).tag(motion) }
-                        }
+                        Toggle("Mouvements des oreilles", isOn: Binding(get: { configuration.selectedEarMotion == .on }, set: { configuration.earMotion = $0 ? .on : .off }))
+                            .toggleStyle(.switch)
                         Picker("Lumières", selection: Binding(get: { configuration.selectedLightMode }, set: { configuration.lightMode = $0 })) {
                             ForEach(LightMode.allCases) { mode in Text(mode.title).tag(mode) }
                         }
