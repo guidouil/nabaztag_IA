@@ -3,6 +3,60 @@ import Speech
 
 @main
 struct BridgeChecks {
+    static func checkProviderHealth() async {
+        var configuration = AppConfiguration()
+        configuration.provider = .claude
+        let configured = await Bridge.providerHealth(configuration)
+        assert(configured.status == .warning && configured.detail.contains("Clé non consultée"))
+        configuration.providers[AIProvider.claude.rawValue] = ProviderConfiguration(model: "", baseURL: "https://api.anthropic.com/v1")
+        let noModel = await Bridge.providerHealth(configuration)
+        assert(noModel.status == .failed)
+        configuration.providers[AIProvider.claude.rawValue] = ProviderConfiguration(model: "fixture", baseURL: "http://example.com")
+        let insecure = await Bridge.providerHealth(configuration)
+        assert(insecure.status == .failed && insecure.detail.contains("HTTPS"))
+    }
+
+    static func checkHealthReport() throws {
+        var commands: [String: [String: Any]] = [
+            "systemctl is-active nabd.service nabweb.service nginx.service": ["returncode": 0, "stdout": "active\nactive\nactive"],
+            "systemctl --failed --no-pager --no-legend": ["returncode": 0, "stdout": ""],
+            "aplay -l": ["returncode": 0, "stdout": "card 1: tagtagtagsound [tagtagtag-sound]"],
+            "arecord -l": ["returncode": 0, "stdout": "card 1: tagtagtagsound [tagtagtag-sound]"]
+        ]
+        let hardware: [String: Any] = ["sound_card": "tagtagtagsound", "sound_input": true]
+        var object: [String: Any] = ["bridge_version": 1, "commands": commands,
+                                     "gestalt": ["type": "response", "state": "idle", "hardware": hardware]]
+        func checks() throws -> [Bridge.HealthCheck] {
+            try Bridge.remoteHealthChecks(JSONSerialization.data(withJSONObject: object))
+        }
+        let healthy = try checks()
+        assert(healthy.count == 3 && healthy.allSatisfy { $0.status == .healthy })
+        assert(Set(healthy.map(\.id)).count == healthy.count)
+        assert(Bridge.HealthReport(checks: healthy, diagnostic: "", checkedAt: Date()).status == .healthy)
+
+        commands["systemctl --failed --no-pager --no-legend"] = ["returncode": 0, "stdout": "other.service failed"]
+        object["commands"] = commands
+        let warning = try checks()
+        assert(warning[0].status == .healthy && warning[1].status == .warning && warning[2].status == .healthy)
+        assert(Bridge.HealthReport(checks: warning, diagnostic: "", checkedAt: Date()).status == .warning)
+
+        commands["systemctl is-active nabd.service nabweb.service nginx.service"] = ["returncode": 3, "stdout": "inactive\nactive\nactive"]
+        commands["arecord -l"] = ["returncode": 0, "stdout": "no soundcards found"]
+        object["commands"] = commands
+        let failed = try checks()
+        assert(failed[0].status == .healthy && failed[1].status == .failed && failed[2].status == .failed)
+        assert(Bridge.HealthReport(checks: failed, diagnostic: "", checkedAt: Date()).status == .failed)
+
+        object["commands"] = [:] as [String: Any]
+        object["gestalt"] = nil
+        let missing = try checks()
+        assert(missing[1].status == .failed && missing[2].status == .failed)
+        for invalid in [Data("not JSON".utf8), Data("[]".utf8), Data("{\"bridge_version\":2,\"commands\":{}}".utf8)] {
+            do { _ = try Bridge.remoteHealthChecks(invalid); assertionFailure("Un diagnostic invalide ne doit pas être sain.") }
+            catch {}
+        }
+    }
+
     static func checkSpokenAnswer() {
         let plain = "À Paris, il fait 12,5 °C (ressenti 10 °C), avec 65 % d’humidité."
         assert(Bridge.spokenAnswer(plain) == plain)
@@ -226,6 +280,8 @@ struct BridgeChecks {
         switch CommandLine.arguments.dropFirst().first ?? "self-test" {
         case "diagnostic":
             print(try await Bridge.diagnostic())
+        case "health":
+            print(await Bridge.healthCheck().diagnostic)
         case "ask":
             print(try await Bridge.ask("Réponds en français en une phrase courte, sans outil : quel est le résultat de deux plus deux ?"))
         case "claude-status":
@@ -249,6 +305,8 @@ struct BridgeChecks {
             }
             print("Capture WAV : \(data.count) octets, 3 secondes.")
         default:
+            await checkProviderHealth()
+            try checkHealthReport()
             checkSpokenAnswer()
             try await checkCodex()
             try checkServiceRouting()
@@ -290,7 +348,7 @@ struct BridgeChecks {
                 }
             }
             assert((0..<20).contains(Int(completed)!))
-            print("Tests Bridge : OK (Codex isolé, stdin, délais, erreurs, capture arrêtée/précoce, réflexion ready/EOF dans les deux sens, SSH, fin STT unique).")
+            print("Tests Bridge : OK (bilan de santé et pannes partielles, Codex isolé, stdin, délais, erreurs, capture arrêtée/précoce, réflexion ready/EOF dans les deux sens, SSH, fin STT unique).")
         }
     }
 }

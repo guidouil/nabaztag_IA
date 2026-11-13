@@ -125,6 +125,13 @@ struct SettingsView: View {
         .padding(20)
         .frame(width: 660, height: 700)
         .disabled(busy)
+        .onAppear {
+            configuration = .load()
+            sshPassword = ""
+            apiKey = ""
+            message = ""
+            scan = nil
+        }
         .onChange(of: configuration.provider) { _, _ in apiKey = "" }
         .onChange(of: configuration.ssh.host) { _, _ in scan = nil; sshPassword = "" }
         .onChange(of: configuration.ssh.username) { _, _ in sshPassword = "" }

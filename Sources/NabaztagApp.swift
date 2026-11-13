@@ -137,11 +137,23 @@ func checkEasterEggs() {
 
 @main
 struct NabaztagApp: App {
+    @StateObject private var model = NabaztagModel()
+    private let menuBarIcon: NSImage = {
+        let image = Bundle.main.url(forResource: "MenuBarIcon", withExtension: "png")
+            .flatMap { NSImage(contentsOf: $0) }
+            ?? NSImage(systemSymbolName: "hare.fill", accessibilityDescription: "Nabaztag IA") ?? NSImage()
+        image.size = NSSize(width: 22, height: 22)
+        image.isTemplate = true
+        return image
+    }()
+
     init() {
         if CommandLine.arguments.contains("--self-test") {
             checkConversationPrompt()
             checkEasterEggs()
-            print("Tests contexte conversation et codes secrets : OK.")
+            assert(Bundle.main.url(forResource: "MenuBarIcon", withExtension: "png") != nil)
+            assert(menuBarIcon.isValid && menuBarIcon.isTemplate && menuBarIcon.size == NSSize(width: 22, height: 22))
+            print("Tests contexte conversation, codes secrets et icône de barre de menus : OK.")
             exit(0)
         }
         if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
@@ -151,107 +163,236 @@ struct NabaztagApp: App {
     }
 
     var body: some Scene {
-        Window("Nabaztag IA", id: "main") {
-            ContentView()
-                .frame(minWidth: 640, minHeight: 540)
+        MenuBarExtra {
+            ContentView(model: model, buttonWatcher: model.buttonWatcher)
+        } label: {
+            Image(nsImage: menuBarIcon)
+                .accessibilityLabel("Nabaztag IA")
+                .help("Nabaztag IA · \(model.status)")
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    model.stop()
+                }
         }
-        .defaultSize(width: 740, height: 650)
+        .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView(configuration: model.configuration, onSave: model.applyConfiguration)
+                .disabled(model.busy)
+                .onAppear {
+                    model.showingSettings = true
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                }
+                .onDisappear { model.showingSettings = false }
+        }
+        .windowResizability(.contentSize)
+    }
+}
+
+private extension Bridge.HealthStatus {
+    var color: Color {
+        switch self {
+        case .healthy: return .teal
+        case .warning: return .orange
+        case .failed: return .red
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .healthy: return "Vérifié"
+        case .warning: return "À vérifier"
+        case .failed: return "En défaut"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .healthy: return "checkmark.circle.fill"
+        case .warning: return "exclamationmark.circle.fill"
+        case .failed: return "xmark.circle.fill"
+        }
+    }
+}
+
+private struct PanelDisclosureStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                configuration.isExpanded.toggle()
+            } label: {
+                HStack {
+                    configuration.label
+                    Spacer(minLength: 8)
+                    Image(systemName: configuration.isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(configuration.isExpanded ? "Déplié" : "Replié")
+            if configuration.isExpanded { configuration.content }
+        }
+        .padding(12)
+        .background(.background, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
 @MainActor
 private struct ContentView: View {
-    @State private var draft = ""
-    @State private var speechDraft = ""
-    @State private var history: [ConversationEntry] = []
-    @State private var pendingQuestion = ""
-    @State private var diagnostic = ""
-    @State private var status = "Prêt"
-    @State private var error: String?
-    @State private var busy = false
-    @StateObject private var buttonWatcher = ButtonWatcher()
-    @State private var configuration = AppConfiguration.load()
-    @State private var showingSettings = false
+    @ObservedObject var model: NabaztagModel
+    @ObservedObject var buttonWatcher: ButtonWatcher
+    @State private var showingDiagnostic = false
     @State private var showingConversation = false
-    @State private var operationTask: Task<Void, Never>?
-    @State private var recording: Bridge.RemoteSession?
-    @State private var thinkingForward = true
+    @State private var showingSpeech = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Nabaztag IA").font(.title.bold())
-                Spacer()
-                Text(configuration.ssh.host).foregroundStyle(.secondary).monospaced()
-                Button("Réglages", systemImage: "gearshape") { showingSettings = true }.disabled(busy)
-            }
-
-            Text("Micro et haut-parleur du lapin · Transcription locale sur le Mac")
-                .font(.subheadline).foregroundStyle(.secondary)
-
-            HStack {
-                Button("Vérifier") {
-                    run("Vérification…") {
-                        diagnostic = try await Bridge.diagnostic()
-                        status = "Vérification terminée"
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                header
+                voiceControls
+                healthPanel
+                if let error = model.error {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                }
+                DisclosureGroup(isExpanded: $showingConversation) {
+                    conversation
+                } label: {
+                    Label("Conversation", systemImage: "bubble.left.and.bubble.right")
+                        .font(.headline)
+                    if !model.history.isEmpty {
+                        Text("\(model.history.count)").font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                .disabled(busy)
-                Button("Tester la voix") {
-                    run("Préparation et lecture du message de test…") {
-                        try await Bridge.speak("Bonjour, je suis ton Nabaztag. Voici un aperçu de ma voix française, entièrement générée sur ton Mac.")
-                        status = "Test de la voix terminé"
+                DisclosureGroup(isExpanded: $showingSpeech) {
+                    speechInput
+                } label: {
+                    Label("Faire dire au lapin", systemImage: "speaker.wave.2")
+                        .font(.headline)
+                }
+                DisclosureGroup(isExpanded: $showingDiagnostic) {
+                    ScrollView {
+                        Text(model.healthReport?.diagnostic ?? "Clique sur Vérifier pour lancer le contrôle de santé.")
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
                     }
+                    .frame(height: 180)
+                    Button("Tester la voix", systemImage: "speaker.wave.2.fill") {
+                        model.testVoice()
+                    }
+                    .disabled(model.busy || model.showingSettings)
+                } label: {
+                    Label("Diagnostic", systemImage: "stethoscope").font(.headline)
                 }
-                .disabled(busy)
-                Spacer()
-                Button(recording == nil ? "Parler" : "Arrêter l’enregistrement", systemImage: recording == nil ? "mic.fill" : "stop.fill") {
-                    listen()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(busy && recording == nil)
             }
+            .padding(16)
+        }
+        .frame(width: 400, height: 550)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .tint(.teal)
+        .disclosureGroupStyle(PanelDisclosureStyle())
+    }
 
+    private var header: some View {
+        HStack(spacing: 10) {
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable().frame(width: 36, height: 36).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Nabaztag IA").font(.headline)
+                Text(model.configuration.ssh.host).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            SettingsLink {
+                Label("Réglages", systemImage: "gearshape")
+            }
+            .disabled(model.busy).help("Réglages")
+            Button("Quitter", systemImage: "power") { NSApplication.shared.terminate(nil) }
+                .help("Quitter Nabaztag IA")
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+    }
+
+    private var voiceControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                if busy { ProgressView().controlSize(.small) }
-                Text(status).font(.callout)
+                if model.busy { ProgressView().controlSize(.small) }
+                else { Image(systemName: "waveform").foregroundStyle(.teal) }
+                Text(model.status).font(.callout).fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .combine)
+            Button(action: model.listen) {
+                Label(model.recording == nil ? "Parler au lapin" : "Arrêter l’enregistrement",
+                      systemImage: model.recording == nil ? "mic.fill" : "stop.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent).controlSize(.large)
+            .disabled((model.busy || model.showingSettings) && model.recording == nil)
+            HStack(spacing: 8) {
+                Label(buttonWatcher.status, systemImage: "dot.radiowaves.left.and.right")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    .help(buttonWatcher.status)
+                Spacer(minLength: 0)
+                Button("Reconnecter le bouton", systemImage: "arrow.triangle.2.circlepath") {
+                    model.reconnectButton()
+                }
+                .labelStyle(.iconOnly).buttonStyle(.borderless)
+                .disabled(model.busy || model.showingSettings).help("Reconnecter le bouton du lapin")
+            }
+        }
+        .padding(14)
+        .background(.teal.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+    }
 
+    private var healthPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(buttonWatcher.status).font(.caption).foregroundStyle(.secondary)
+                Label("État du système", systemImage: "heart.text.square").font(.headline)
                 Spacer()
-                Button("Reconnecter le bouton") {
-                    buttonWatcher.start(onClick: listen)
+                Button("Vérifier", systemImage: "arrow.clockwise", action: model.checkHealth)
+                    .font(.caption).disabled(model.busy || model.showingSettings)
+            }
+            if let report = model.healthReport {
+                HStack {
+                    Label(report.status.title, systemImage: report.status.systemImage)
+                        .foregroundStyle(report.status.color)
+                    Spacer()
+                    Text(report.checkedAt, style: .time).foregroundStyle(.secondary)
                 }
-                .disabled(busy)
-            }
-
-            if let error {
-                Text(error).foregroundStyle(.red).textSelection(.enabled)
-            }
-
-            if !diagnostic.isEmpty {
-                DisclosureGroup("Diagnostic") {
-                    ScrollView { Text(diagnostic)
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled) }
-                        .frame(maxHeight: 160)
+                .font(.caption)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3), spacing: 10) {
+                    ForEach(report.checks) { check in
+                        Button { showingDiagnostic.toggle() } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Label(check.title, systemImage: check.systemImage)
+                                    .font(.caption).lineLimit(1)
+                                Label(check.status.title, systemImage: check.status.systemImage)
+                                    .font(.caption2).foregroundStyle(check.status.color)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain).help(check.detail)
+                        .accessibilityLabel("\(check.title) : \(check.status.title). \(check.detail)")
+                    }
                 }
+            } else {
+                Label("Pas encore vérifié", systemImage: "circle.dashed")
+                    .font(.caption).foregroundStyle(.secondary)
             }
+        }
+        .padding(12)
+        .background(.background, in: RoundedRectangle(cornerRadius: 12))
+    }
 
-            Divider()
-
-            DisclosureGroup(showingConversation ? "Conversation" : "Afficher la conversation", isExpanded: $showingConversation) {
+    private var conversation: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !model.history.isEmpty || !model.pendingQuestion.isEmpty {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 18) {
-                            if history.isEmpty && pendingQuestion.isEmpty {
-                                Text("Fais un clic court sur le bouton du lapin ou clique sur Parler. Attends le bip, puis pose ta question près de lui.")
-                                    .foregroundStyle(.secondary)
-                            }
-                            ForEach(history) { entry in
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(model.history) { entry in
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text("Vous : \(entry.question)").fontWeight(.medium)
                                     Text(.init("Nabaztag : \(entry.answer)"))
@@ -265,106 +406,135 @@ private struct ContentView: View {
                                     }
                                 }
                             }
-                            if !pendingQuestion.isEmpty {
-                                Text("Vous : \(pendingQuestion)").fontWeight(.medium)
+                            if !model.pendingQuestion.isEmpty {
+                                Text("Vous : \(model.pendingQuestion)").fontWeight(.medium)
                             }
                             Color.clear.frame(height: 1).id("fin")
                         }
+                        .font(.callout)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
-                        .padding(.vertical, 4)
                     }
+                    .frame(height: 150)
                     .onAppear { proxy.scrollTo("fin", anchor: .bottom) }
-                    .onChange(of: history.count) { _, _ in proxy.scrollTo("fin", anchor: .bottom) }
-                    .onChange(of: pendingQuestion) { _, _ in proxy.scrollTo("fin", anchor: .bottom) }
+                    .onChange(of: model.history.count) { _, _ in proxy.scrollTo("fin", anchor: .bottom) }
+                    .onChange(of: model.pendingQuestion) { _, _ in proxy.scrollTo("fin", anchor: .bottom) }
                 }
             }
-
             HStack(alignment: .bottom) {
-                TextField("Écrire une question", text: $draft, axis: .vertical)
-                    .lineLimit(2...4)
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(busy)
-                Button("Envoyer") {
-                    let question = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    run("Préparation de la réponse…") {
-                        try await respond(to: question)
-                        draft = ""
-                    }
-                }
-                .disabled(busy || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                TextField("Écrire une question", text: $model.draft, axis: .vertical)
+                    .lineLimit(2...4).textFieldStyle(.roundedBorder).disabled(model.busy)
+                Button("Envoyer", systemImage: "arrow.up.circle.fill", action: model.sendQuestion)
+                    .labelStyle(.iconOnly).help("Envoyer la question")
+                    .disabled(model.busy || model.showingSettings || model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-
             Text("Après le bip, parle puis rappuie sur le bouton du lapin ou sur Arrêter l’enregistrement. Arrêt de sécurité à 90 secondes. Les 6 derniers échanges sont envoyés au fournisseur choisi ; l’audio est traité localement.")
                 .font(.caption).foregroundStyle(.secondary)
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Faire dire au lapin").font(.headline)
-                    Text("Lecture directe · sans IA").font(.caption).foregroundStyle(.secondary)
-                }
-                HStack(alignment: .bottom) {
-                    TextField("Texte à lire à voix haute", text: $speechDraft, axis: .vertical)
-                        .lineLimit(2...4)
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(busy)
-                    Button("Lire", systemImage: "speaker.wave.2.fill") {
-                        let text = speechDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                        run("Préparation de la voix et lecture sur le Nabaztag…") {
-                            try await Bridge.speak(text)
-                            status = "Prêt"
-                        }
-                    }
-                    .disabled(busy || speechDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .task {
-            buttonWatcher.start(onClick: listen)
-            if configuration.selectedVoiceEngine == .kokoro { LocalVoice.prewarm() }
-        }
-        .onChange(of: configuration.selectedVoiceEngine) { _, engine in
-            if engine == .kokoro { LocalVoice.prewarm() } else { LocalVoice.shutdown() }
-        }
-        .onDisappear {
-            operationTask?.cancel()
-            recording?.cancel()
-            buttonWatcher.stop()
-            StreamPlayback.cancelActive()
-            LocalVoice.shutdown()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-            operationTask?.cancel()
-            recording?.cancel()
-            buttonWatcher.stop()
-            StreamPlayback.cancelActive()
-            LocalVoice.shutdown()
-        }
-        .sheet(isPresented: $showingSettings) {
-            SettingsView(configuration: configuration) { updated in
-                if configuration.provider != updated.provider || configuration.options(for: configuration.provider) != updated.options(for: updated.provider) { history = [] }
-                configuration = updated
-                error = nil
-                buttonWatcher.start(onClick: listen)
-            }
         }
     }
 
-    private func listen() {
-        guard !showingSettings else { return }
+    private var speechInput: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Lecture directe · sans IA").font(.caption).foregroundStyle(.secondary)
+            TextField("Texte à lire à voix haute", text: $model.speechDraft, axis: .vertical)
+                .lineLimit(2...4).textFieldStyle(.roundedBorder).disabled(model.busy)
+            Button("Lire", systemImage: "speaker.wave.2.fill", action: model.speakDraft)
+                .disabled(model.busy || model.showingSettings || model.speechDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+}
+
+@MainActor
+private final class NabaztagModel: ObservableObject {
+    @Published var draft = ""
+    @Published var speechDraft = ""
+    @Published private(set) var history: [ConversationEntry] = []
+    @Published private(set) var pendingQuestion = ""
+    @Published private(set) var healthReport: Bridge.HealthReport?
+    @Published private(set) var status = "Prêt"
+    @Published private(set) var error: String?
+    @Published private(set) var busy = false
+    @Published private(set) var configuration = AppConfiguration.load()
+    @Published var showingSettings = false
+    @Published private(set) var recording: Bridge.RemoteSession?
+    let buttonWatcher = ButtonWatcher()
+    private var operationTask: Task<Void, Never>?
+    private var thinkingForward = true
+
+    init() {
+        reconnectButton()
+        if configuration.selectedVoiceEngine == .kokoro { LocalVoice.prewarm() }
+        checkHealth()
+    }
+
+    func reconnectButton() {
+        buttonWatcher.start { [weak self] in self?.listen() }
+    }
+
+    func stop() {
+        operationTask?.cancel()
+        recording?.cancel()
+        buttonWatcher.stop()
+        StreamPlayback.cancelActive()
+        LocalVoice.shutdown()
+    }
+
+    func applyConfiguration(_ updated: AppConfiguration) {
+        if configuration.provider != updated.provider || configuration.options(for: configuration.provider) != updated.options(for: updated.provider) { history = [] }
+        if configuration.selectedVoiceEngine != updated.selectedVoiceEngine {
+            if updated.selectedVoiceEngine == .kokoro { LocalVoice.prewarm() } else { LocalVoice.shutdown() }
+        }
+        configuration = updated
+        error = nil
+        healthReport = nil
+        reconnectButton()
+        checkHealth()
+    }
+
+    func checkHealth() {
+        run("Vérification du système…") {
+            let report = await Bridge.healthCheck()
+            try Task.checkCancellation()
+            self.healthReport = report
+            self.status = "Prêt"
+        }
+    }
+
+    func testVoice() {
+        run("Préparation et lecture du message de test…") {
+            try await Bridge.speak("Bonjour, je suis ton Nabaztag. Voici un aperçu de ma voix française, entièrement générée sur ton Mac.")
+            self.status = "Prêt"
+        }
+    }
+
+    func sendQuestion() {
+        let question = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty else { return }
+        run("Préparation de la réponse…") {
+            try await self.respond(to: question)
+            self.draft = ""
+        }
+    }
+
+    func speakDraft() {
+        let text = speechDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        run("Préparation de la voix et lecture sur le Nabaztag…") {
+            try await Bridge.speak(text)
+            self.status = "Prêt"
+        }
+    }
+
+    func listen() {
         if let recording {
             recording.stop()
             status = "Fin de l’enregistrement…"
             return
         }
-        guard !busy else { return }
+        guard !busy, !showingSettings else { return }
         let session = Bridge.RemoteSession()
         recording = session
-        run("Préparation du micro… attends le bip, puis parle et rappuie pour arrêter.") {
+        run("Préparation du micro… attends le bip, puis parle et rappuie pour arrêter.") { [self] in
             defer { recording = nil; session.cancel() }
             let question = try await Bridge.listen(session: session) {
                 recording = nil
@@ -374,7 +544,7 @@ private struct ContentView: View {
         }
     }
 
-    private func run(_ initialStatus: String, operation: @escaping @MainActor () async throws -> Void) {
+    func run(_ initialStatus: String, operation: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }
         busy = true
         error = nil

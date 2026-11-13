@@ -24,6 +24,7 @@
 		B30000000000000000000002 /* local_voice.py in Resources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000002 /* local_voice.py */; };
 		B30000000000000000000003 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = F30000000000000000000003 /* README.md */; };
 		B30000000000000000000004 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000001 /* AppIcon.icns */; };
+		B30000000000000000000007 /* MenuBarIcon.png in Resources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000002 /* MenuBarIcon.png */; };
 		B30000000000000000000005 /* setup-voice.command in Resources */ = {isa = PBXBuildFile; fileRef = F30000000000000000000005 /* setup-voice.command */; };
 		B30000000000000000000006 /* requirements-local-voice.txt in Resources */ = {isa = PBXBuildFile; fileRef = F30000000000000000000006 /* requirements-local-voice.txt */; };
 		B50000000000000000000001 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F50000000000000000000001 /* SwiftUI.framework */; };
@@ -75,6 +76,7 @@
 		F30000000000000000000007 = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = build.command; sourceTree = "<group>"; };
 		F30000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = test.command; sourceTree = "<group>"; };
 		F40000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		F40000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = image.png; path = MenuBarIcon.png; sourceTree = "<group>"; };
 		F50000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		F50000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Speech.framework; path = System/Library/Frameworks/Speech.framework; sourceTree = SDKROOT; };
 		F50000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
@@ -111,7 +113,7 @@
 		};
 		A30000000000000000000002 = {isa = PBXGroup; children = (F10000000000000000000001, F10000000000000000000002, F10000000000000000000003, F10000000000000000000004, F10000000000000000000005, F10000000000000000000006, F10000000000000000000007, F10000000000000000000008, F10000000000000000000009, F1000000000000000000000A, F1000000000000000000000B, F1000000000000000000000C, F1000000000000000000000D, F1000000000000000000000E, ); path = Sources; sourceTree = "<group>"; };
 		A30000000000000000000003 = {isa = PBXGroup; children = (F20000000000000000000001, F20000000000000000000002, ); path = Helpers; sourceTree = "<group>"; };
-		A30000000000000000000004 = {isa = PBXGroup; children = (F40000000000000000000001, ); path = Assets; sourceTree = "<group>"; };
+		A30000000000000000000004 = {isa = PBXGroup; children = (F40000000000000000000001, F40000000000000000000002, ); path = Assets; sourceTree = "<group>"; };
 		A30000000000000000000005 = {isa = PBXGroup; children = (F50000000000000000000001, F50000000000000000000002, F50000000000000000000003, ); name = Frameworks; sourceTree = "<group>"; };
 		A30000000000000000000006 = {isa = PBXGroup; children = (F60000000000000000000001, F60000000000000000000002, ); name = Products; sourceTree = "<group>"; };
 		A30000000000000000000007 = {isa = PBXGroup; children = (F70000000000000000000001, F70000000000000000000002, F70000000000000000000003, F70000000000000000000004, F70000000000000000000005, F70000000000000000000006, F70000000000000000000007, F70000000000000000000008, F70000000000000000000009, F7000000000000000000000A, F7000000000000000000000B, F7000000000000000000000C, F7000000000000000000000D, F7000000000000000000000E, ); path = tests; sourceTree = "<group>"; };
@@ -160,7 +162,7 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		E10000000000000000000003 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (B30000000000000000000001, B30000000000000000000002, B30000000000000000000003, B30000000000000000000004, B30000000000000000000005, B30000000000000000000006, ); runOnlyForDeploymentPostprocessing = 0; };
+		E10000000000000000000003 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (B30000000000000000000001, B30000000000000000000002, B30000000000000000000003, B30000000000000000000004, B30000000000000000000005, B30000000000000000000006, B30000000000000000000007, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */

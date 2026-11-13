@@ -63,6 +63,155 @@ enum Bridge {
         return "Diagnostic SSH du Nabaztag.\n\(status)\n\(String(decoding: pretty, as: UTF8.self))"
     }
 
+    enum HealthStatus { case healthy, warning, failed }
+
+    struct HealthCheck: Identifiable {
+        let id: String
+        let title: String
+        let systemImage: String
+        let status: HealthStatus
+        let detail: String
+    }
+
+    struct HealthReport {
+        let checks: [HealthCheck]
+        let diagnostic: String
+        let checkedAt: Date
+
+        var status: HealthStatus {
+            if checks.contains(where: { $0.status == .failed }) { return .failed }
+            return checks.contains(where: { $0.status == .warning }) ? .warning : .healthy
+        }
+    }
+
+    static func healthCheck() async -> HealthReport {
+        let configuration = AppConfiguration.load()
+        async let remote = remoteHealth(configuration)
+        async let provider = providerHealth(configuration)
+        async let voice = voiceHealth(configuration)
+        let (remoteResult, providerResult, voiceResult) = await (remote, provider, voice)
+        let speechStatus = SFSpeechRecognizer.authorizationStatus()
+        let supportsSpeech = SFSpeechRecognizer(locale: Locale(identifier: "fr-FR"))?.supportsOnDeviceRecognition == true
+        let speech = HealthCheck(id: "speech", title: "Transcription", systemImage: "mic",
+            status: !supportsSpeech || speechStatus == .denied || speechStatus == .restricted ? .failed : speechStatus == .authorized ? .healthy : .warning,
+            detail: !supportsSpeech ? "Reconnaissance française locale indisponible sur ce Mac."
+                : speechStatus == .authorized ? "Reconnaissance française locale disponible et autorisée."
+                : speechStatus == .notDetermined ? "Autorisation demandée au premier enregistrement."
+                : "Reconnaissance vocale refusée dans les réglages de confidentialité macOS.")
+        let checks = remoteResult.checks + [providerResult, voiceResult, speech]
+        let details = checks.map { "\($0.title) : \($0.detail)" }.joined(separator: "\n\n")
+        return HealthReport(checks: checks, diagnostic: details + "\n\n" + remoteResult.diagnostic, checkedAt: Date())
+    }
+
+    private static func remoteHealth(_ configuration: AppConfiguration) async -> (checks: [HealthCheck], diagnostic: String) {
+        do {
+            let data = try await run("/usr/bin/ssh", configuration.ssh.arguments(for: "diagnostic"),
+                                     timeout: 15, environment: configuration.ssh.environment())
+            let checks = try remoteHealthChecks(data)
+            let object = try JSONSerialization.jsonObject(with: data)
+            let pretty = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+            return (checks, String(decoding: pretty, as: UTF8.self))
+        } catch {
+            return ([HealthCheck(id: "rabbit", title: "Lapin", systemImage: "antenna.radiowaves.left.and.right", status: .failed,
+                                 detail: "Connexion ou diagnostic impossible : \(error.localizedDescription)"),
+                     HealthCheck(id: "services", title: "Services", systemImage: "gearshape.2", status: .warning,
+                                 detail: "Non vérifiés : diagnostic du lapin indisponible."),
+                     HealthCheck(id: "audio", title: "Audio du lapin", systemImage: "hifispeaker", status: .warning,
+                                 detail: "Non vérifié : diagnostic du lapin indisponible.")], "")
+        }
+    }
+
+    static func remoteHealthChecks(_ data: Data) throws -> [HealthCheck] {
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["bridge_version"] as? Int == 1, let commands = object["commands"] as? [String: [String: Any]] else {
+            throw Failure(message: "Format du diagnostic du lapin invalide ou incompatible.")
+        }
+        func output(_ command: String) -> String { commands[command]?["stdout"] as? String ?? "" }
+        func succeeded(_ command: String) -> Bool { commands[command]?["returncode"] as? Int == 0 }
+        let activeCommand = "systemctl is-active nabd.service nabweb.service nginx.service"
+        let failedCommand = "systemctl --failed --no-pager --no-legend"
+        let states = output(activeCommand).split(whereSeparator: \.isNewline).map(String.init)
+        let gestalt = object["gestalt"] as? [String: Any]
+        let servicesReady = succeeded(activeCommand) && states == ["active", "active", "active"] &&
+            gestalt?["type"] as? String == "response" && gestalt?["state"] as? String != nil
+        let clean = succeeded(failedCommand) && output(failedCommand).isEmpty
+        let serviceDetail = !servicesReady ? "Services ou réponse Pynab indisponibles. \(output(activeCommand)) \(object["gestalt_error"] as? String ?? "")"
+            : !clean ? "Pynab répond, mais des unités système sont en échec ou leur état est inconnu. \(output(failedCommand))"
+            : "nabd, nabweb et nginx actifs ; Pynab répond ; aucune unité système en échec."
+        let hardware = gestalt?["hardware"] as? [String: Any]
+        let card = hardware?["sound_card"] as? String ?? ""
+        let audioReady = !card.isEmpty && hardware?["sound_input"] as? Bool == true &&
+            ["aplay -l", "arecord -l"].allSatisfy { succeeded($0) && output($0).contains(card) }
+        return [HealthCheck(id: "rabbit", title: "Lapin", systemImage: "antenna.radiowaves.left.and.right", status: .healthy,
+                            detail: "Connexion SSH et relais de diagnostic accessibles."),
+                HealthCheck(id: "services", title: "Services", systemImage: "gearshape.2", status: servicesReady ? clean ? .healthy : .warning : .failed,
+                            detail: serviceDetail.trimmingCharacters(in: .whitespacesAndNewlines)),
+                HealthCheck(id: "audio", title: "Audio du lapin", systemImage: "hifispeaker", status: audioReady ? .healthy : .failed,
+                            detail: audioReady ? "Carte \(card) détectée en entrée et en sortie. Qualité sonore non testée."
+                                : "Microphone ou carte de lecture non détectés par ALSA et Pynab.")]
+    }
+
+    static func providerHealth(_ configuration: AppConfiguration) async -> HealthCheck {
+        let provider = configuration.provider
+        do {
+            let detail: String
+            let status: HealthStatus
+            switch provider {
+            case .chatgpt:
+                let login = try await run(codex, loginArguments, timeout: 15)
+                guard String(decoding: login, as: UTF8.self).contains("Logged in using ChatGPT") else {
+                    throw Failure(message: "Connecte Codex avec ChatGPT via codex login dans Terminal.")
+                }
+                status = .healthy
+                detail = "Codex connecté avec ChatGPT. Disponibilité du modèle et quotas non testés."
+            case .claudeCode:
+                guard let executable = ClaudeCode.executable else { throw Failure(message: "Claude Code n’est pas installé.") }
+                let folder = try temporaryDirectory()
+                defer { try? FileManager.default.removeItem(at: folder) }
+                let auth = try await ClaudeCode.authentication(executable: executable, directory: folder, environment: ClaudeCode.environment())
+                try ClaudeCode.requireSubscription(auth)
+                status = .healthy
+                detail = "Claude Code connecté avec claude.ai. Disponibilité du modèle et quotas non testés."
+            case .grokBuild:
+                guard GrokBuild.executable != nil else { throw Failure(message: "Grok Build n’est pas installé.") }
+                detail = try await GrokBuild.diagnostic()
+                status = .warning
+            default:
+                let options = configuration.options(for: provider)
+                _ = try RemoteAI.makeRequest("Vérification", provider: provider, model: options.model,
+                                             apiKey: "validation-only", baseURL: options.baseURL)
+                status = .warning
+                detail = "\(provider.title) : URL et modèle valides. Clé non consultée ; connexion et quotas non testés."
+            }
+            return HealthCheck(id: "provider", title: "Assistant IA", systemImage: "sparkles", status: status, detail: detail)
+        } catch {
+            return HealthCheck(id: "provider", title: "Assistant IA", systemImage: "sparkles", status: .failed, detail: error.localizedDescription)
+        }
+    }
+
+    private static func voiceHealth(_ configuration: AppConfiguration) async -> HealthCheck {
+        let status: HealthStatus
+        let detail: String
+        if configuration.selectedVoiceEngine == .kokoro {
+            status = LocalVoice.isInstalled ? .healthy : .failed
+            detail = LocalVoice.isInstalled ? "Installation Kokoro et voix Siwis présentes. Synthèse non testée."
+                : "Installation Kokoro incomplète. Lance setup-voice.command."
+        } else {
+            do {
+                let voices = try await run("/usr/bin/say", ["-v", "?"], timeout: 10)
+                let installed = String(decoding: voices, as: UTF8.self).split(whereSeparator: \.isNewline)
+                    .contains { $0.split(whereSeparator: \.isWhitespace).first == "Thomas" }
+                status = installed ? .healthy : .failed
+                detail = installed ? "Voix Thomas disponible sur macOS. Synthèse non testée."
+                    : "Voix Thomas absente. Installe-la dans les réglages vocaux macOS."
+            } catch {
+                status = .failed
+                detail = "Voix macOS non vérifiable : \(error.localizedDescription)"
+            }
+        }
+        return HealthCheck(id: "voice", title: "Voix locale", systemImage: "waveform", status: status, detail: detail)
+    }
+
     static func ask(_ prompt: String) async throws -> String {
         let answer = try await askProvider(prompt)
         do {
