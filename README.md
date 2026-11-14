@@ -2,6 +2,8 @@
 
 Le lapin fournit le micro et le haut-parleur. Le Mac transcrit la parole localement, demande une réponse au fournisseur choisi, puis fait parler le lapin. ChatGPT via l'abonnement Codex est le choix initial.
 
+![Nabaztag IA : réglages de personnalité à gauche et panneau de contrôle à droite](Assets/Screenshot.png)
+
 ## Lancer
 
 1. Mettre le Mac et le Nabaztag sur le même réseau. Les réglages initiaux sont **192.168.68.54**, compte SSH **pi**, clé dédiée déjà installée. **nabaztag-609.local** a été vérifié : il se résout vers cette même IP.
