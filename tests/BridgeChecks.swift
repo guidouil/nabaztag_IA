@@ -181,6 +181,24 @@ struct BridgeChecks {
         do { try await invalid.start("think forward", waitForReady: true); assertionFailure("Un ACK invalide doit échouer.") }
         catch { assert(error.localizedDescription.contains("invalide")) }
         invalid.cancel()
+        for station in ["nova", "franceinfo", "phenix"] {
+            let radio = try prepare("think")
+            defer { radio.cancel() }
+            try await radio.start("radio \(station)", waitForReady: true)
+            let result = Task { try await radio.result() }
+            try await Task.sleep(nanoseconds: 30_000_000)
+            radio.stop()
+            let data = try await result.value
+            assert(data == Data("ready\n".utf8))
+            let arguments = try Data(contentsOf: folder.appendingPathComponent("arguments"))
+                .split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
+            assert(arguments.last?.hasSuffix("radio \(station)") == true)
+        }
+        let stoppedBeforeReady = try prepare("think")
+        defer { stoppedBeforeReady.cancel() }
+        stoppedBeforeReady.stop()
+        try await stoppedBeforeReady.start("radio nova", waitForReady: true)
+        _ = try await stoppedBeforeReady.result(timeout: 1)
         let failed = try prepare("failure")
         try await failed.start("record-until-stop")
         do { _ = try await failed.result(timeout: 1); assertionFailure("Une erreur SSH doit être propagée.") }

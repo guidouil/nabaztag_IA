@@ -12,7 +12,7 @@ xcrun swiftc -swift-version 5 -parse-as-library Sources/SSHSettings.swift Helper
   -framework Security -o "$APP/Contents/MacOS/NabaztagSSHAskpass"
 codesign --force --sign - "$APP/Contents/MacOS/NabaztagSSHAskpass"
 mkdir -p "$APP/Contents/Resources"
-cp bridge_remote.py Helpers/local_voice.py README.md Assets/AppIcon.icns Assets/MenuBarIcon.png setup-voice.command requirements-local-voice.txt "$APP/Contents/Resources/"
+cp bridge_remote.py Helpers/local_voice.py README.md Assets/AppIcon.icns Assets/MenuBarIcon.png setup-voice.command setup-radio.command requirements-local-voice.txt "$APP/Contents/Resources/"
 xcrun swiftc -swift-version 5 -parse-as-library Sources/*.swift \
   -framework SwiftUI -framework Speech -framework Security -o "$APP/Contents/MacOS/NabaztagIA"
 codesign --force --sign - "$APP"

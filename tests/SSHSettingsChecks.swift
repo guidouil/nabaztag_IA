@@ -39,10 +39,10 @@ struct SSHSettingsChecks {
         for action in ["diagnostic", "play", "play-animated", "play-animated off fixed 002838", "play-animated on random FF00AA", "play-animated small random FF00AA", "play-animated large off abcdef", "watch-button", "record 1", "record 15"] {
             _ = try settings.arguments(for: action)
         }
-        for action in ["record-until-stop", "think forward", "think backward"] {
+        for action in ["record-until-stop", "think forward", "think backward", "radio nova", "radio franceinfo", "radio phenix"] {
             _ = try settings.arguments(for: action)
         }
-        for action in ["record-until-stop 6", "record-until-stop; id", "think", "think left", "think forward extra", "think  forward", "think forward\n", "think forward; id", "think $(id)"] {
+        for action in ["radio", "radio fip", "radio https://example.com/live.mp3", "radio nova extra", "radio  nova", "radio nova\n", "radio nova; id", "radio $(id)", "record-until-stop 6", "record-until-stop; id", "think", "think left", "think forward extra", "think  forward", "think forward\n", "think forward; id", "think $(id)"] {
             expectFailure { _ = try settings.arguments(for: action) }
         }
         for action in ["play-stream off off 002838", "play-stream on fixed ABCDEF", "play-stream small fixed ABCDEF", "play-stream large random FF00AA"] {

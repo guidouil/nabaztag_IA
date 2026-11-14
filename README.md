@@ -1,4 +1,4 @@
-# Nabaztag IA — application Mac 0.12
+# Nabaztag IA — application Mac 0.13
 
 Le lapin fournit le micro et le haut-parleur. Le Mac transcrit la parole localement, demande une réponse au fournisseur choisi, puis fait parler le lapin. ChatGPT via l'abonnement Codex est le choix initial.
 
@@ -11,7 +11,7 @@ Le lapin fournit le micro et le haut-parleur. Le Mac transcrit la parole localem
 
 L'icône de la barre de menus reprend la silhouette de lapin fournie ; sa couleur s'adapte aux apparences claire et sombre de macOS.
 
-Les titres **Conversation**, **Faire dire au lapin** et **Diagnostic** sont cliquables sur toute leur ligne pour déplier ou replier leur contenu. Le champ de question et l'aide sont masqués avec **Conversation**. La surveillance du bouton du lapin et les opérations en cours continuent quand le panneau est masqué.
+Les titres **Radio**, **Conversation**, **Faire dire au lapin** et **Diagnostic** sont cliquables sur toute leur ligne pour déplier ou replier leur contenu. Le menu grandit ou rétrécit avec les panneaux ouverts, jusqu'à la hauteur disponible sur l'écran ; le défilement prend le relais au-delà. Le champ de question et l'aide sont masqués avec **Conversation**. La surveillance du bouton du lapin et les opérations en cours continuent quand le panneau est masqué.
 
 **État du système** présente six contrôles indépendants : connexion SSH au lapin, services Pynab, présence des appareils audio, fournisseur IA, voix locale et transcription. Le résultat est horodaté ; chaque icône indique un élément vérifié, à vérifier ou en défaut. Les détails et les limites figurent dans **Diagnostic**. Ce contrôle n'émet aucun son et n'effectue aucun appel au modèle IA : il ne garantit ni la qualité sonore, ni une synthèse réussie, ni la disponibilité du modèle ou ses quotas. Pour les connecteurs API, la validité de la clé et l'accès au serveur restent à vérifier.
 
@@ -23,7 +23,9 @@ Pour lui faire lire un texte de ton choix, déplier **Faire dire au lapin**, rem
 
 ## Personnalité et codes secrets
 
-Le lapin reçoit une consigne de ton pince-sans-rire, complice et légèrement absurde : carottes, bureaucratie du terrier et grandes oreilles. L'humour reste occasionnel ; il doit s'effacer pour les sujets graves ou si tu demandes un ton sérieux. Le ton des réponses générées dépend du fournisseur IA choisi. Les bulletins météo et actualités restent ceux des services dédiés.
+Dans **Réglages → Personnalité du lapin**, choisir son **Prénom** et modifier son **Prompt de personnalité**. La fenêtre des réglages peut être agrandie verticalement. Le prénom apparaît dans le menu, la conversation, le test de voix et les consignes envoyées à l'IA. Un prénom vide conserve « Nabaztag ». Le prompt par défaut propose un ton pince-sans-rire, complice et légèrement absurde, sans imposer de thème récurrent. L'humour doit s'effacer pour les sujets graves ou si tu demandes un ton sérieux. L'ancien défaut imposait notamment la bureaucratie du terrier, ce qui pouvait favoriser les répétitions.
+
+Le prompt peut être vidé pour retirer les consignes de personnalité, ou rétabli avec **Rétablir le prompt par défaut**. Le prénom et le prompt sont enregistrés sur ce Mac et transmis au fournisseur IA choisi avec chaque question. Enregistrer un changement de prénom ou de personnalité remet la conversation à zéro pour que l'ancien contexte n'entretienne pas le ton précédent. Les consignes de fonctionnement (réponses vocales, météo, actualités et recherche Web) restent gérées par l'application. Le ton réellement produit dépend du fournisseur IA choisi ; les bulletins météo, actualités et codes secrets gardent leur texte dédié.
 
 Après le bip, prononcer l'une de ces phrases, puis arrêter l'enregistrement comme pour une question ordinaire. Elles fonctionnent aussi avec **Envoyer** :
 
@@ -58,6 +60,30 @@ Les flux sont consultés à chaque demande depuis le Mac, quel que soit le fourn
 
 Les [conditions d'utilisation des flux RSS du Monde](https://www.lemonde.fr/le-monde-et-vous/article/2025/07/14/les-flux-rss-du-monde-fr_5498778_3237.html) réservent leur usage à un cadre strictement personnel, non professionnel et non collectif.
 
+## Radio en direct
+
+Dans le panneau **Radio**, choisir **Radio Nova**, **franceinfo** ou **Radio Phénix** (Caen, 92.7 FM), puis cliquer sur **Écouter**. On peut aussi demander après le bip **« Mets Radio Nova »**, **« Lance France Info »** ou **« Écoute Radio Phénix »**, ou saisir la même commande dans **Conversation**. Ces commandes sont reconnues localement, sans appel au fournisseur IA. Une question comme « Qui a créé Radio Nova ? » reste une question ordinaire.
+
+La radio continue jusqu'à un clic court sur la tête du lapin, un clic sur **Arrêter** ou **Arrêter la radio** dans l'application, ou la fermeture de l'application/connexion SSH. Le premier clic pendant la radio l'arrête ; utiliser un nouveau clic quand l'état **Prêt** revient pour parler au lapin. Pour changer de station, arrêter la lecture puis en choisir une autre. Les autres opérations sont désactivées pendant la radio. Le Mac et l'application doivent rester ouverts et éveillés.
+
+L'audio est téléchargé directement par le lapin en HTTPS et décodé par `mpg123` vers sa carte ALSA, sans passer par la voix de synthèse. Il n'a pas la limite de 90 secondes des réponses vocales. Les radios reçoivent une connexion depuis le lapin ; aucune conversation ni aucun enregistrement ne leur est envoyé. Une panne réseau interrompt la lecture avec un message d'erreur ; **Écouter** permet de réessayer. Les animations des réponses vocales ne s'appliquent pas à la radio.
+
+Les trois adresses sont fixes et issues des lecteurs officiels :
+
+| Station | Flux MP3 HTTPS | Source |
+| --- | --- | --- |
+| Radio Nova | `https://novazz.ice.infomaniak.ch/novazz-128.mp3` | [Configuration officielle Nova](https://www.nova.fr/radios-data/www.nova.fr/radio-nova.json) |
+| franceinfo | `https://icecast.radiofrance.fr/franceinfo-midfi.mp3` | [Documentation Radio France](https://developers.radiofrance.fr/doc/tutorial-by-example/list-brands) |
+| Radio Phénix | `https://live.radio-campus.org:8002/caen.mp3` | [Lecteur officiel Phénix](https://phenix.fm/js/main-v1757002947.js), [la radio à Caen](https://phenix.fm/la-radio/) |
+
+Les trois flux ont répondu avec des octets audio MP3 lors du contrôle depuis le Mac du 13 novembre 2026 ; cela ne garantit pas leur disponibilité permanente. Phénix utilise le port TCP sortant 8002.
+
+Les trois stations ont ensuite été testées sur la carte audio du lapin, avec le son confirmé par l'utilisateur. Nova a continué pendant 95 secondes, au-delà de la limite des réponses vocales. L'arrêt logiciel et le retour de Pynab au repos ont été vérifiés pour chacune ; l'arrêt par bouton est couvert par les tests simulés.
+
+**Installation nécessaire une fois sur le lapin :** double-cliquer sur **setup-radio.command** dans ce dossier. Il se connecte par défaut à `pi@192.168.68.54` avec l'accès SSH habituel, installe `curl` et `mpg123` si nécessaire, puis met à jour le relais audio. Saisir le mot de passe dans Terminal s'il le demande. La clé dédiée de l'application est restreinte et ne permet pas l'installation. L'empreinte SSH doit déjà être connue et `sudo -n` autorisé ; sinon, effectuer l'installation dans une session administrateur adaptée. Une copie du relais précédent est conservée dans `/usr/local/lib/nabaztag-mac/bridge_remote.py.before-radio`.
+
+Pour un autre hôte : `./setup-radio.command pi@nom-du-lapin.local`. Le script est également embarqué dans les ressources de l'application. La mise à jour conserve les commandes audio existantes et ne change pas la ligne de clé SSH autorisée.
+
 ## Recherche Web avec ChatGPT
 
 Avec **ChatGPT · abonnement Codex**, demander par exemple **« Cherche sur le Web qui a créé le Nabaztag et explique-moi son histoire »**, ou **« Cherche les dernières informations sur ce sujet et explique ce qui a changé »**. Après une réponse ou un titre d'actualité, on peut poursuivre par **« Pourquoi est-ce important ? »** ou **« Peux-tu approfondir ce point ? »**. Les demandes vocales et la saisie texte utilisent le même fonctionnement.
@@ -77,6 +103,8 @@ Le projet utilise directement les fichiers de `Sources`, sans les dupliquer. Il 
 L'app Xcode est créée dans ses produits de compilation et partage les préférences de l'app existante, car son identifiant reste `local.gui.nabaztag-ia`. macOS peut redemander les autorisations réseau local, reconnaissance vocale ou Trousseau pour cette copie. Le modèle Kokoro et la connexion Codex restent des installations locales séparées ; voir les sections correspondantes ci-dessous. Les tests existants se lancent avec **test.command** dans Terminal ; aucune cible XCTest n'est ajoutée.
 
 ## Réglages
+
+La fenêtre **Réglage de Nabaztag IA** organise les réglages en cinq onglets natifs macOS : **Personnalité**, **IA**, **Voix**, **Animations** et **Connexion**. L’aide SSH se trouve dans **Connexion**. Les modifications restent en brouillon entre les onglets ; **Enregistrer** les applique toutes et **Annuler** les abandonne.
 
 Le bouton engrenage **Réglages** ouvre une fenêtre séparée pour choisir l'IP ou le nom local, le login, l'authentification par clé ou mot de passe et le fournisseur IA. Pour les modes API, le modèle, l'adresse et la clé sont configurables ; les modes abonnement utilisent leur outil officiel installé sur le Mac. Les préférences sont conservées entre les lancements. Les mots de passe SSH et clés API sont enregistrés dans le **Trousseau macOS**, séparément pour chaque hôte/login ou fournisseur/adresse. Un champ secret vide conserve la valeur enregistrée ; les secrets peuvent être supprimés depuis l'app Trousseaux d'accès de macOS. Aucun mot de passe ni jeton de connexion Claude Code ou Grok Build n'est saisi dans cette application.
 
@@ -208,7 +236,7 @@ Ce prototype enregistre entre deux appuis, depuis le Mac ou le bouton du lapin, 
 
 ## Accès SSH dédié
 
-La clé locale `~/.ssh/nabaztag_mac_ed25519`, sans phrase secrète, a été créée pour l'application. Sur le lapin, elle est limitée par une commande imposée à `/usr/local/lib/nabaztag-mac/bridge_remote.py`, qui accepte seulement `diagnostic`, `record N` (1 à 15 secondes), `record-until-stop`, `think forward|backward`, `play`, `play-animated`, `play-stream`, `play-queue` et `watch-button`. `record-until-stop` attend un clic court ou la ligne `stop` sur son entrée ; la fermeture de l'entrée annule la capture. `think` garde sa réservation jusqu'à la fermeture de l'entrée. Les commandes `play-animated`, `play-stream` et `play-queue` acceptent trois paramètres : `<off|small|large> <off|fixed|random> <RRGGBB>`, avec une couleur de six chiffres hexadécimaux. `play-queue` reçoit des segments PCM S16_LE mono 24 kHz précédés chacun d'une longueur non signée de quatre octets en ordre réseau ; l'EOF termine la réponse. La file est bornée à 90 secondes de PCM et 2 000 segments. Le relais mis à jour est nécessaire avant d'utiliser la nouvelle application. L'ancienne commande `play-stream` reste compatible avec le PCM brut sans en-têtes ; `play` et `play-animated` conservent le WAV. Cette entrée d'autorisation ne donne pas accès à un shell.
+La clé locale `~/.ssh/nabaztag_mac_ed25519`, sans phrase secrète, a été créée pour l'application. Sur le lapin, elle est limitée par une commande imposée à `/usr/local/lib/nabaztag-mac/bridge_remote.py`, qui accepte seulement `diagnostic`, `record N` (1 à 15 secondes), `record-until-stop`, `think forward|backward`, `radio nova|franceinfo|phenix`, `play`, `play-animated`, `play-stream`, `play-queue` et `watch-button`. `record-until-stop` attend un clic court ou la ligne `stop` sur son entrée ; la fermeture de l'entrée annule la capture. `think` garde sa réservation jusqu'à la fermeture de l'entrée. Les commandes `play-animated`, `play-stream` et `play-queue` acceptent trois paramètres : `<off|small|large> <off|fixed|random> <RRGGBB>`, avec une couleur de six chiffres hexadécimaux. `play-queue` reçoit des segments PCM S16_LE mono 24 kHz précédés chacun d'une longueur non signée de quatre octets en ordre réseau ; l'EOF termine la réponse. La file est bornée à 90 secondes de PCM et 2 000 segments. Le relais mis à jour est nécessaire avant d'utiliser la nouvelle application. L'ancienne commande `play-stream` reste compatible avec le PCM brut sans en-têtes ; `play` et `play-animated` conservent le WAV. La commande radio ne prend qu’un identifiant de station fixe, sans URL libre ; fermer son entrée arrête la lecture. Cette entrée d'autorisation ne donne pas accès à un shell.
 
 Protéger cette clé : sa possession permet d'enregistrer le micro et de diffuser des sons sur ce lapin. Pour révoquer l'accès, se connecter avec l'accès SSH habituel du compte `pi`, supprimer dans `~/.ssh/authorized_keys` la ligne portant le commentaire `nabaztag-mac-local`, puis supprimer la clé dédiée et son fichier `.pub` sur le Mac. Ces opérations de révocation sont manuelles.
 

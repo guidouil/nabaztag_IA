@@ -1,7 +1,8 @@
 // !$*UTF8*$!
 {
 	archiveVersion = 1;
-	classes = {};
+	classes = {
+	};
 	objectVersion = 56;
 	objects = {
 
@@ -18,26 +19,34 @@
 		B1000000000000000000000A /* ClaudeCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000000A /* ClaudeCode.swift */; };
 		B1000000000000000000000B /* GrokBuild.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000000B /* GrokBuild.swift */; };
 		B1000000000000000000000C /* StreamPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000000C /* StreamPlayback.swift */; };
+		B1000000000000000000000D /* Weather.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000000D /* Weather.swift */; };
+		B1000000000000000000000E /* News.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000000E /* News.swift */; };
+		B1000000000000000000000F /* Radio.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000000F /* Radio.swift */; };
 		B20000000000000000000001 /* SSHAskpass.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000001 /* SSHAskpass.swift */; };
 		B20000000000000000000002 /* SSHSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10000000000000000000005 /* SSHSettings.swift */; };
 		B30000000000000000000001 /* bridge_remote.py in Resources */ = {isa = PBXBuildFile; fileRef = F30000000000000000000001 /* bridge_remote.py */; };
 		B30000000000000000000002 /* local_voice.py in Resources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000002 /* local_voice.py */; };
 		B30000000000000000000003 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = F30000000000000000000003 /* README.md */; };
 		B30000000000000000000004 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000001 /* AppIcon.icns */; };
-		B30000000000000000000007 /* MenuBarIcon.png in Resources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000002 /* MenuBarIcon.png */; };
 		B30000000000000000000005 /* setup-voice.command in Resources */ = {isa = PBXBuildFile; fileRef = F30000000000000000000005 /* setup-voice.command */; };
 		B30000000000000000000006 /* requirements-local-voice.txt in Resources */ = {isa = PBXBuildFile; fileRef = F30000000000000000000006 /* requirements-local-voice.txt */; };
+		B30000000000000000000007 /* MenuBarIcon.png in Resources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000002 /* MenuBarIcon.png */; };
+		B30000000000000000000008 /* setup-radio.command in Resources */ = {isa = PBXBuildFile; fileRef = F30000000000000000000009 /* setup-radio.command */; };
 		B50000000000000000000001 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F50000000000000000000001 /* SwiftUI.framework */; };
 		B50000000000000000000002 /* Speech.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F50000000000000000000002 /* Speech.framework */; };
 		B50000000000000000000003 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F50000000000000000000003 /* Security.framework */; };
 		B50000000000000000000004 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F50000000000000000000003 /* Security.framework */; };
 		B60000000000000000000001 /* NabaztagSSHAskpass in Embed SSH Helper */ = {isa = PBXBuildFile; fileRef = F60000000000000000000002 /* NabaztagSSHAskpass */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		B1000000000000000000000D /* Weather.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000000D /* Weather.swift */; };
-		B1000000000000000000000E /* News.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000000000000000000000E /* News.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		D10000000000000000000001 = {isa = PBXContainerItemProxy; containerPortal = A10000000000000000000001 /* Project object */; proxyType = 1; remoteGlobalIDString = A20000000000000000000002; remoteInfo = NabaztagSSHAskpass; };
+		D10000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A20000000000000000000002;
+			remoteInfo = NabaztagSSHAskpass;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -46,100 +55,225 @@
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 6;
-			files = (B60000000000000000000001 /* NabaztagSSHAskpass in Embed SSH Helper */, );
+			files = (
+				B60000000000000000000001 /* NabaztagSSHAskpass in Embed SSH Helper */,
+			);
 			name = "Embed SSH Helper";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		F10000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NabaztagApp.swift; sourceTree = "<group>"; };
-		F10000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
-		F10000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		F10000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bridge.swift; sourceTree = "<group>"; };
-		F10000000000000000000005 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHSettings.swift; sourceTree = "<group>"; };
-		F10000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHTrust.swift; sourceTree = "<group>"; };
-		F10000000000000000000007 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProvider.swift; sourceTree = "<group>"; };
-		F10000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonWatcher.swift; sourceTree = "<group>"; };
-		F10000000000000000000009 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalVoice.swift; sourceTree = "<group>"; };
-		F1000000000000000000000A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCode.swift; sourceTree = "<group>"; };
-		F1000000000000000000000B = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokBuild.swift; sourceTree = "<group>"; };
-		F1000000000000000000000C = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamPlayback.swift; sourceTree = "<group>"; };
-		F20000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHAskpass.swift; sourceTree = "<group>"; };
-		F20000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = local_voice.py; sourceTree = "<group>"; };
-		F30000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = bridge_remote.py; sourceTree = "<group>"; };
-		F30000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		F30000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
-		F30000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = DIAGNOSTIC.md; sourceTree = "<group>"; };
-		F30000000000000000000005 = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "setup-voice.command"; sourceTree = "<group>"; };
-		F30000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = text; path = "requirements-local-voice.txt"; sourceTree = "<group>"; };
-		F30000000000000000000007 = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = build.command; sourceTree = "<group>"; };
-		F30000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = test.command; sourceTree = "<group>"; };
-		F40000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
-		F40000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = image.png; path = MenuBarIcon.png; sourceTree = "<group>"; };
-		F50000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
-		F50000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Speech.framework; path = System/Library/Frameworks/Speech.framework; sourceTree = SDKROOT; };
-		F50000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
-		F60000000000000000000001 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Nabaztag IA.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		F60000000000000000000002 = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = NabaztagSSHAskpass; sourceTree = BUILT_PRODUCTS_DIR; };
-		F70000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProviderChecks.swift; sourceTree = "<group>"; };
-		F70000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfigurationChecks.swift; sourceTree = "<group>"; };
-		F70000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeChecks.swift; sourceTree = "<group>"; };
-		F70000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonWatcherChecks.swift; sourceTree = "<group>"; };
-		F70000000000000000000005 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHSettingsChecks.swift; sourceTree = "<group>"; };
-		F70000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHTrustChecks.swift; sourceTree = "<group>"; };
-		F70000000000000000000007 = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = test_bridge_remote.py; sourceTree = "<group>"; };
-		F70000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = test_local_voice.py; sourceTree = "<group>"; };
-		F70000000000000000000009 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeChecks.swift; sourceTree = "<group>"; };
-		F7000000000000000000000A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokBuildChecks.swift; sourceTree = "<group>"; };
-		F7000000000000000000000B = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalVoiceChecks.swift; sourceTree = "<group>"; };
-		F7000000000000000000000C = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamPlaybackChecks.swift; sourceTree = "<group>"; };
-		F1000000000000000000000D = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Weather.swift; sourceTree = "<group>"; };
-		F7000000000000000000000D = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherChecks.swift; sourceTree = "<group>"; };
-		F1000000000000000000000E = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = News.swift; sourceTree = "<group>"; };
-		F7000000000000000000000E = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewsChecks.swift; sourceTree = "<group>"; };
+		F10000000000000000000001 /* NabaztagApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NabaztagApp.swift; sourceTree = "<group>"; };
+		F10000000000000000000002 /* AppConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
+		F10000000000000000000003 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		F10000000000000000000004 /* Bridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bridge.swift; sourceTree = "<group>"; };
+		F10000000000000000000005 /* SSHSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHSettings.swift; sourceTree = "<group>"; };
+		F10000000000000000000006 /* SSHTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHTrust.swift; sourceTree = "<group>"; };
+		F10000000000000000000007 /* AIProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProvider.swift; sourceTree = "<group>"; };
+		F10000000000000000000008 /* ButtonWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonWatcher.swift; sourceTree = "<group>"; };
+		F10000000000000000000009 /* LocalVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalVoice.swift; sourceTree = "<group>"; };
+		F1000000000000000000000A /* ClaudeCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCode.swift; sourceTree = "<group>"; };
+		F1000000000000000000000B /* GrokBuild.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokBuild.swift; sourceTree = "<group>"; };
+		F1000000000000000000000C /* StreamPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamPlayback.swift; sourceTree = "<group>"; };
+		F1000000000000000000000D /* Weather.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Weather.swift; sourceTree = "<group>"; };
+		F1000000000000000000000E /* News.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = News.swift; sourceTree = "<group>"; };
+		F1000000000000000000000F /* Radio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Radio.swift; sourceTree = "<group>"; };
+		F20000000000000000000001 /* SSHAskpass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHAskpass.swift; sourceTree = "<group>"; };
+		F20000000000000000000002 /* local_voice.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = local_voice.py; sourceTree = "<group>"; };
+		F30000000000000000000001 /* bridge_remote.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = bridge_remote.py; sourceTree = "<group>"; };
+		F30000000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		F30000000000000000000003 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		F30000000000000000000004 /* DIAGNOSTIC.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = DIAGNOSTIC.md; sourceTree = "<group>"; };
+		F30000000000000000000005 /* setup-voice.command */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "setup-voice.command"; sourceTree = "<group>"; };
+		F30000000000000000000006 /* requirements-local-voice.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "requirements-local-voice.txt"; sourceTree = "<group>"; };
+		F30000000000000000000007 /* build.command */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = build.command; sourceTree = "<group>"; };
+		F30000000000000000000008 /* test.command */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = test.command; sourceTree = "<group>"; };
+		F30000000000000000000009 /* setup-radio.command */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "setup-radio.command"; sourceTree = "<group>"; };
+		F40000000000000000000001 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		F40000000000000000000002 /* MenuBarIcon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = MenuBarIcon.png; sourceTree = "<group>"; };
+		F50000000000000000000001 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		F50000000000000000000002 /* Speech.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Speech.framework; path = System/Library/Frameworks/Speech.framework; sourceTree = SDKROOT; };
+		F50000000000000000000003 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		F60000000000000000000001 /* Nabaztag IA.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Nabaztag IA.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		F60000000000000000000002 /* NabaztagSSHAskpass */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = NabaztagSSHAskpass; sourceTree = BUILT_PRODUCTS_DIR; };
+		F70000000000000000000001 /* AIProviderChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProviderChecks.swift; sourceTree = "<group>"; };
+		F70000000000000000000002 /* AppConfigurationChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfigurationChecks.swift; sourceTree = "<group>"; };
+		F70000000000000000000003 /* BridgeChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeChecks.swift; sourceTree = "<group>"; };
+		F70000000000000000000004 /* ButtonWatcherChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonWatcherChecks.swift; sourceTree = "<group>"; };
+		F70000000000000000000005 /* SSHSettingsChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHSettingsChecks.swift; sourceTree = "<group>"; };
+		F70000000000000000000006 /* SSHTrustChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHTrustChecks.swift; sourceTree = "<group>"; };
+		F70000000000000000000007 /* test_bridge_remote.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = test_bridge_remote.py; sourceTree = "<group>"; };
+		F70000000000000000000008 /* test_local_voice.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = test_local_voice.py; sourceTree = "<group>"; };
+		F70000000000000000000009 /* ClaudeCodeChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCodeChecks.swift; sourceTree = "<group>"; };
+		F7000000000000000000000A /* GrokBuildChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokBuildChecks.swift; sourceTree = "<group>"; };
+		F7000000000000000000000B /* LocalVoiceChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalVoiceChecks.swift; sourceTree = "<group>"; };
+		F7000000000000000000000C /* StreamPlaybackChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamPlaybackChecks.swift; sourceTree = "<group>"; };
+		F7000000000000000000000D /* WeatherChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherChecks.swift; sourceTree = "<group>"; };
+		F7000000000000000000000E /* NewsChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewsChecks.swift; sourceTree = "<group>"; };
+		F7000000000000000000000F /* RadioChecks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioChecks.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		E10000000000000000000002 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (B50000000000000000000001, B50000000000000000000002, B50000000000000000000003, ); runOnlyForDeploymentPostprocessing = 0; };
-		E20000000000000000000002 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (B50000000000000000000004, ); runOnlyForDeploymentPostprocessing = 0; };
+		E10000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B50000000000000000000001 /* SwiftUI.framework in Frameworks */,
+				B50000000000000000000002 /* Speech.framework in Frameworks */,
+				B50000000000000000000003 /* Security.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E20000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B50000000000000000000004 /* Security.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		A30000000000000000000001 = {
 			isa = PBXGroup;
-			children = (A30000000000000000000002 /* Sources */, A30000000000000000000003 /* Helpers */, A30000000000000000000004 /* Assets */, A30000000000000000000007 /* tests */, F30000000000000000000002 /* Info.plist */, F30000000000000000000001 /* bridge_remote.py */, F30000000000000000000005 /* setup-voice.command */, F30000000000000000000006 /* requirements-local-voice.txt */, F30000000000000000000007 /* build.command */, F30000000000000000000008 /* test.command */, F30000000000000000000003 /* README.md */, F30000000000000000000004 /* DIAGNOSTIC.md */, A30000000000000000000005 /* Frameworks */, A30000000000000000000006 /* Products */, );
+			children = (
+				A30000000000000000000002 /* Sources */,
+				A30000000000000000000003 /* Helpers */,
+				A30000000000000000000004 /* Assets */,
+				A30000000000000000000007 /* tests */,
+				F30000000000000000000002 /* Info.plist */,
+				F30000000000000000000001 /* bridge_remote.py */,
+				F30000000000000000000005 /* setup-voice.command */,
+				F30000000000000000000009 /* setup-radio.command */,
+				F30000000000000000000006 /* requirements-local-voice.txt */,
+				F30000000000000000000007 /* build.command */,
+				F30000000000000000000008 /* test.command */,
+				F30000000000000000000003 /* README.md */,
+				F30000000000000000000004 /* DIAGNOSTIC.md */,
+				A30000000000000000000005 /* Frameworks */,
+				A30000000000000000000006 /* Products */,
+			);
 			sourceTree = "<group>";
 		};
-		A30000000000000000000002 = {isa = PBXGroup; children = (F10000000000000000000001, F10000000000000000000002, F10000000000000000000003, F10000000000000000000004, F10000000000000000000005, F10000000000000000000006, F10000000000000000000007, F10000000000000000000008, F10000000000000000000009, F1000000000000000000000A, F1000000000000000000000B, F1000000000000000000000C, F1000000000000000000000D, F1000000000000000000000E, ); path = Sources; sourceTree = "<group>"; };
-		A30000000000000000000003 = {isa = PBXGroup; children = (F20000000000000000000001, F20000000000000000000002, ); path = Helpers; sourceTree = "<group>"; };
-		A30000000000000000000004 = {isa = PBXGroup; children = (F40000000000000000000001, F40000000000000000000002, ); path = Assets; sourceTree = "<group>"; };
-		A30000000000000000000005 = {isa = PBXGroup; children = (F50000000000000000000001, F50000000000000000000002, F50000000000000000000003, ); name = Frameworks; sourceTree = "<group>"; };
-		A30000000000000000000006 = {isa = PBXGroup; children = (F60000000000000000000001, F60000000000000000000002, ); name = Products; sourceTree = "<group>"; };
-		A30000000000000000000007 = {isa = PBXGroup; children = (F70000000000000000000001, F70000000000000000000002, F70000000000000000000003, F70000000000000000000004, F70000000000000000000005, F70000000000000000000006, F70000000000000000000007, F70000000000000000000008, F70000000000000000000009, F7000000000000000000000A, F7000000000000000000000B, F7000000000000000000000C, F7000000000000000000000D, F7000000000000000000000E, ); path = tests; sourceTree = "<group>"; };
+		A30000000000000000000002 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				F10000000000000000000001 /* NabaztagApp.swift */,
+				F10000000000000000000002 /* AppConfiguration.swift */,
+				F10000000000000000000003 /* SettingsView.swift */,
+				F10000000000000000000004 /* Bridge.swift */,
+				F10000000000000000000005 /* SSHSettings.swift */,
+				F10000000000000000000006 /* SSHTrust.swift */,
+				F10000000000000000000007 /* AIProvider.swift */,
+				F10000000000000000000008 /* ButtonWatcher.swift */,
+				F10000000000000000000009 /* LocalVoice.swift */,
+				F1000000000000000000000A /* ClaudeCode.swift */,
+				F1000000000000000000000B /* GrokBuild.swift */,
+				F1000000000000000000000C /* StreamPlayback.swift */,
+				F1000000000000000000000D /* Weather.swift */,
+				F1000000000000000000000E /* News.swift */,
+				F1000000000000000000000F /* Radio.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		A30000000000000000000003 /* Helpers */ = {
+			isa = PBXGroup;
+			children = (
+				F20000000000000000000001 /* SSHAskpass.swift */,
+				F20000000000000000000002 /* local_voice.py */,
+			);
+			path = Helpers;
+			sourceTree = "<group>";
+		};
+		A30000000000000000000004 /* Assets */ = {
+			isa = PBXGroup;
+			children = (
+				F40000000000000000000001 /* AppIcon.icns */,
+				F40000000000000000000002 /* MenuBarIcon.png */,
+			);
+			path = Assets;
+			sourceTree = "<group>";
+		};
+		A30000000000000000000005 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				F50000000000000000000001 /* SwiftUI.framework */,
+				F50000000000000000000002 /* Speech.framework */,
+				F50000000000000000000003 /* Security.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		A30000000000000000000006 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				F60000000000000000000001 /* Nabaztag IA.app */,
+				F60000000000000000000002 /* NabaztagSSHAskpass */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A30000000000000000000007 /* tests */ = {
+			isa = PBXGroup;
+			children = (
+				F70000000000000000000001 /* AIProviderChecks.swift */,
+				F70000000000000000000002 /* AppConfigurationChecks.swift */,
+				F70000000000000000000003 /* BridgeChecks.swift */,
+				F70000000000000000000004 /* ButtonWatcherChecks.swift */,
+				F70000000000000000000005 /* SSHSettingsChecks.swift */,
+				F70000000000000000000006 /* SSHTrustChecks.swift */,
+				F70000000000000000000007 /* test_bridge_remote.py */,
+				F70000000000000000000008 /* test_local_voice.py */,
+				F70000000000000000000009 /* ClaudeCodeChecks.swift */,
+				F7000000000000000000000A /* GrokBuildChecks.swift */,
+				F7000000000000000000000B /* LocalVoiceChecks.swift */,
+				F7000000000000000000000C /* StreamPlaybackChecks.swift */,
+				F7000000000000000000000D /* WeatherChecks.swift */,
+				F7000000000000000000000E /* NewsChecks.swift */,
+				F7000000000000000000000F /* RadioChecks.swift */,
+			);
+			path = tests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
 		A20000000000000000000001 /* Nabaztag IA */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C10000000000000000000002;
-			buildPhases = (E10000000000000000000001 /* Sources */, E10000000000000000000002 /* Frameworks */, E10000000000000000000003 /* Resources */, E10000000000000000000004 /* Embed SSH Helper */, );
-			buildRules = ();
-			dependencies = (D20000000000000000000001, );
+			buildConfigurationList = C10000000000000000000002 /* Build configuration list for PBXNativeTarget "Nabaztag IA" */;
+			buildPhases = (
+				E10000000000000000000001 /* Sources */,
+				E10000000000000000000002 /* Frameworks */,
+				E10000000000000000000003 /* Resources */,
+				E10000000000000000000004 /* Embed SSH Helper */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D20000000000000000000001 /* PBXTargetDependency */,
+			);
 			name = "Nabaztag IA";
 			productName = "Nabaztag IA";
-			productReference = F60000000000000000000001;
+			productReference = F60000000000000000000001 /* Nabaztag IA.app */;
 			productType = "com.apple.product-type.application";
 		};
 		A20000000000000000000002 /* NabaztagSSHAskpass */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C10000000000000000000003;
-			buildPhases = (E20000000000000000000001 /* Sources */, E20000000000000000000002 /* Frameworks */, );
-			buildRules = ();
-			dependencies = ();
+			buildConfigurationList = C10000000000000000000003 /* Build configuration list for PBXNativeTarget "NabaztagSSHAskpass" */;
+			buildPhases = (
+				E20000000000000000000001 /* Sources */,
+				E20000000000000000000002 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
 			name = NabaztagSSHAskpass;
 			productName = NabaztagSSHAskpass;
-			productReference = F60000000000000000000002;
+			productReference = F60000000000000000000002 /* NabaztagSSHAskpass */;
 			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
@@ -147,31 +281,99 @@
 /* Begin PBXProject section */
 		A10000000000000000000001 /* Project object */ = {
 			isa = PBXProject;
-			attributes = {BuildIndependentTargetsInParallel = YES; LastSwiftUpdateCheck = 2720; LastUpgradeCheck = 2720; TargetAttributes = {A20000000000000000000001 = {CreatedOnToolsVersion = 27.2; ProvisioningStyle = Manual; }; A20000000000000000000002 = {CreatedOnToolsVersion = 27.2; ProvisioningStyle = Manual; }; }; };
-			buildConfigurationList = C10000000000000000000001;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastSwiftUpdateCheck = 2720;
+				LastUpgradeCheck = 2720;
+				TargetAttributes = {
+					A20000000000000000000001 = {
+						CreatedOnToolsVersion = 27.2;
+						ProvisioningStyle = Manual;
+					};
+					A20000000000000000000002 = {
+						CreatedOnToolsVersion = 27.2;
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = C10000000000000000000001 /* Build configuration list for PBXProject "Nabaztag IA" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = fr;
 			hasScannedForEncodings = 0;
-			knownRegions = (fr, en, Base, );
+			knownRegions = (
+				fr,
+				en,
+				Base,
+			);
 			mainGroup = A30000000000000000000001;
-			productRefGroup = A30000000000000000000006;
+			productRefGroup = A30000000000000000000006 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
-			targets = (A20000000000000000000001 /* Nabaztag IA */, A20000000000000000000002 /* NabaztagSSHAskpass */, );
+			targets = (
+				A20000000000000000000001 /* Nabaztag IA */,
+				A20000000000000000000002 /* NabaztagSSHAskpass */,
+			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		E10000000000000000000003 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (B30000000000000000000001, B30000000000000000000002, B30000000000000000000003, B30000000000000000000004, B30000000000000000000005, B30000000000000000000006, B30000000000000000000007, ); runOnlyForDeploymentPostprocessing = 0; };
+		E10000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B30000000000000000000001 /* bridge_remote.py in Resources */,
+				B30000000000000000000002 /* local_voice.py in Resources */,
+				B30000000000000000000003 /* README.md in Resources */,
+				B30000000000000000000004 /* AppIcon.icns in Resources */,
+				B30000000000000000000005 /* setup-voice.command in Resources */,
+				B30000000000000000000006 /* requirements-local-voice.txt in Resources */,
+				B30000000000000000000007 /* MenuBarIcon.png in Resources */,
+				B30000000000000000000008 /* setup-radio.command in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		E10000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000001, B10000000000000000000002, B10000000000000000000003, B10000000000000000000004, B10000000000000000000005, B10000000000000000000006, B10000000000000000000007, B10000000000000000000008, B10000000000000000000009, B1000000000000000000000A, B1000000000000000000000B, B1000000000000000000000C, B1000000000000000000000D, B1000000000000000000000E, ); runOnlyForDeploymentPostprocessing = 0; };
-		E20000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B20000000000000000000001, B20000000000000000000002, ); runOnlyForDeploymentPostprocessing = 0; };
+		E10000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000001 /* NabaztagApp.swift in Sources */,
+				B10000000000000000000002 /* AppConfiguration.swift in Sources */,
+				B10000000000000000000003 /* SettingsView.swift in Sources */,
+				B10000000000000000000004 /* Bridge.swift in Sources */,
+				B10000000000000000000005 /* SSHSettings.swift in Sources */,
+				B10000000000000000000006 /* SSHTrust.swift in Sources */,
+				B10000000000000000000007 /* AIProvider.swift in Sources */,
+				B10000000000000000000008 /* ButtonWatcher.swift in Sources */,
+				B10000000000000000000009 /* LocalVoice.swift in Sources */,
+				B1000000000000000000000A /* ClaudeCode.swift in Sources */,
+				B1000000000000000000000B /* GrokBuild.swift in Sources */,
+				B1000000000000000000000C /* StreamPlayback.swift in Sources */,
+				B1000000000000000000000D /* Weather.swift in Sources */,
+				B1000000000000000000000E /* News.swift in Sources */,
+				B1000000000000000000000F /* Radio.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E20000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B20000000000000000000001 /* SSHAskpass.swift in Sources */,
+				B20000000000000000000002 /* SSHSettings.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		D20000000000000000000001 = {isa = PBXTargetDependency; target = A20000000000000000000002 /* NabaztagSSHAskpass */; targetProxy = D10000000000000000000001; };
+		D20000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A20000000000000000000002 /* NabaztagSSHAskpass */;
+			targetProxy = D10000000000000000000001 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -213,30 +415,82 @@
 		};
 		C20000000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			buildSettings = {ENABLE_APP_SANDBOX = NO; ENABLE_HARDENED_RUNTIME = NO; EXECUTABLE_NAME = NabaztagIA; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; PRODUCT_BUNDLE_IDENTIFIER = "local.gui.nabaztag-ia"; PRODUCT_MODULE_NAME = NabaztagIA; PRODUCT_NAME = "Nabaztag IA"; };
+			buildSettings = {
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				EXECUTABLE_NAME = NabaztagIA;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
+				PRODUCT_BUNDLE_IDENTIFIER = "local.gui.nabaztag-ia";
+				PRODUCT_MODULE_NAME = NabaztagIA;
+				PRODUCT_NAME = "Nabaztag IA";
+			};
 			name = Debug;
 		};
 		C20000000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
-			buildSettings = {ENABLE_APP_SANDBOX = NO; ENABLE_HARDENED_RUNTIME = NO; EXECUTABLE_NAME = NabaztagIA; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; PRODUCT_BUNDLE_IDENTIFIER = "local.gui.nabaztag-ia"; PRODUCT_MODULE_NAME = NabaztagIA; PRODUCT_NAME = "Nabaztag IA"; };
+			buildSettings = {
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				EXECUTABLE_NAME = NabaztagIA;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
+				PRODUCT_BUNDLE_IDENTIFIER = "local.gui.nabaztag-ia";
+				PRODUCT_MODULE_NAME = NabaztagIA;
+				PRODUCT_NAME = "Nabaztag IA";
+			};
 			name = Release;
 		};
 		C20000000000000000000005 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			buildSettings = {ENABLE_HARDENED_RUNTIME = NO; PRODUCT_NAME = NabaztagSSHAskpass; SKIP_INSTALL = YES; };
+			buildSettings = {
+				ENABLE_HARDENED_RUNTIME = NO;
+				PRODUCT_NAME = NabaztagSSHAskpass;
+				SKIP_INSTALL = YES;
+			};
 			name = Debug;
 		};
 		C20000000000000000000006 /* Release */ = {
 			isa = XCBuildConfiguration;
-			buildSettings = {ENABLE_HARDENED_RUNTIME = NO; PRODUCT_NAME = NabaztagSSHAskpass; SKIP_INSTALL = YES; };
+			buildSettings = {
+				ENABLE_HARDENED_RUNTIME = NO;
+				PRODUCT_NAME = NabaztagSSHAskpass;
+				SKIP_INSTALL = YES;
+			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		C10000000000000000000001 = {isa = XCConfigurationList; buildConfigurations = (C20000000000000000000001 /* Debug */, C20000000000000000000002 /* Release */, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-		C10000000000000000000002 = {isa = XCConfigurationList; buildConfigurations = (C20000000000000000000003 /* Debug */, C20000000000000000000004 /* Release */, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-		C10000000000000000000003 = {isa = XCConfigurationList; buildConfigurations = (C20000000000000000000005 /* Debug */, C20000000000000000000006 /* Release */, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		C10000000000000000000001 /* Build configuration list for PBXProject "Nabaztag IA" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C20000000000000000000001 /* Debug */,
+				C20000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C10000000000000000000002 /* Build configuration list for PBXNativeTarget "Nabaztag IA" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C20000000000000000000003 /* Debug */,
+				C20000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C10000000000000000000003 /* Build configuration list for PBXNativeTarget "NabaztagSSHAskpass" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C20000000000000000000005 /* Debug */,
+				C20000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 	};
 	rootObject = A10000000000000000000001 /* Project object */;

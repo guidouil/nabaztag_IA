@@ -56,12 +56,14 @@ struct SSHSettings: Codable, Equatable {
             Int(fields[1]).map({ (1...15).contains($0) && String($0) == fields[1] }) == true
         let isThinking = fields.count == 2 && fields[0] == "think" &&
             ["forward", "backward"].contains(String(fields[1]))
+        let isRadio = fields.count == 2 && fields[0] == "radio" &&
+            ["nova", "franceinfo", "phenix"].contains(String(fields[1]))
         let isConfiguredPlayback = fields.count == 4 && ["play-animated", "play-stream", "play-queue"].contains(String(fields[0])) &&
             ["off", "on", "small", "large"].contains(String(fields[1])) &&
             ["off", "fixed", "random"].contains(String(fields[2])) &&
             fields[3].utf8.count == 6 &&
             fields[3].range(of: "^[0-9A-Fa-f]{6}$", options: .regularExpression) != nil
-        guard ["diagnostic", "play", "play-animated", "watch-button", "record-until-stop"].contains(action) || isRecord || isThinking || isConfiguredPlayback else {
+        guard ["diagnostic", "play", "play-animated", "watch-button", "record-until-stop"].contains(action) || isRecord || isThinking || isRadio || isConfiguredPlayback else {
             throw Failure(message: "Commande SSH non autorisée.")
         }
         var arguments = ["-T", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8",

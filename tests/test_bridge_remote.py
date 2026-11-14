@@ -117,11 +117,15 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
         self.assertEqual(bridge.parse_action("record-until-stop"), ("record-until-stop", None))
         self.assertEqual(bridge.parse_action("think forward"), ("think", "forward"))
         self.assertEqual(bridge.parse_action("think backward"), ("think", "backward"))
+        for station in ("nova", "franceinfo", "phenix"):
+            self.assertEqual(bridge.parse_action("radio " + station), ("radio", station))
         for command in ("", "sh", "diagnostic extra", "record", "record 0", "record 16",
                         "record 1; reboot", "play; reboot", "record $(id)", "record '1",
                         "watch-button extra", "watch-button; reboot", "play-animated extra", "play-animated; reboot",
                         "record-until-stop 90", "record-until-stop; reboot", "think", "think sideways",
-                        "think forward extra", "think forward; reboot", "think $(id)"):
+                        "think forward extra", "think forward; reboot", "think $(id)",
+                        "radio", "radio unknown", "radio https://example.com", "radio nova extra",
+                        "radio nova; reboot", "radio $(id)"):
             with self.subTest(command=command), self.assertRaises(ValueError):
                 bridge.parse_action(command)
 
@@ -944,6 +948,159 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
             with self.assertRaises(ConnectionError):
                 bridge.watch_button()
         connection.__exit__.assert_called_once()
+
+
+class RadioTests(unittest.TestCase):
+    @bridge.contextlib.contextmanager
+    def fixture(self, network_mode="normal", player_mode="normal", timeout=12):
+        real_popen, children = bridge.subprocess.Popen, []
+        ready = threading.Event()
+
+        class Output(io.StringIO):
+            def write(self, text):
+                count = super().write(text)
+                if self.getvalue() == "ready\n":
+                    ready.set()
+                return count
+
+        network_script = """import os, sys, time
+if sys.argv[1] == 'failure':
+    sys.stderr.write('fixture HTTP 503')
+    sys.exit(22)
+if sys.argv[1] == 'stall':
+    time.sleep(10)
+while True:
+    os.write(1, b'MP3-fixture' * 1000)
+    if sys.argv[1] == 'finite':
+        time.sleep(.1)
+        break
+    time.sleep(.02)
+"""
+        player_script = """import os, sys
+if sys.argv[1] == 'failure':
+    os.read(0, 1)
+    sys.stderr.write('fixture ALSA unavailable')
+    sys.exit(7)
+while os.read(0, 16384):
+    pass
+"""
+
+        def popen(arguments, **kwargs):
+            if arguments[0] == "curl":
+                self.assertIn("--fail", arguments)
+                self.assertIn("--proto-redir", arguments)
+                self.assertEqual(arguments[-1], bridge.RADIO_STREAMS["nova"])
+                command = [sys.executable, "-c", network_script, network_mode]
+            else:
+                self.assertEqual(arguments, ["mpg123", "--quiet", "--no-control", "-o", "alsa", "-a", bridge.DEVICE, "-"])
+                command = [sys.executable, "-c", player_script, player_mode]
+            child = real_popen(command, **kwargs)
+            children.append(child)
+            return child
+
+        connection, events = bridge.socket.socketpair()
+        source_fd, control_fd = os.pipe()
+        errors, output = [], Output()
+        with os.fdopen(source_fd, "rb", buffering=0) as source, \
+             os.fdopen(control_fd, "wb", buffering=0) as control, \
+             connection, events, connection.makefile("rb", buffering=0) as stream, \
+             mock.patch.object(bridge, "reserve", return_value=bridge.contextlib.nullcontext((connection, stream))), \
+             mock.patch.object(bridge.shutil, "which", return_value="/fixture/command"), \
+             mock.patch.object(bridge.subprocess, "Popen", side_effect=popen), \
+             mock.patch.object(bridge.sys, "stdin", source), \
+             mock.patch.object(bridge.sys, "stdout", output), \
+             mock.patch.object(bridge, "RADIO_START_TIMEOUT", timeout):
+            def run():
+                try:
+                    bridge.radio("nova")
+                except Exception as error:
+                    errors.append(error)
+
+            worker = threading.Thread(target=run)
+            worker.start()
+            try:
+                yield ready, control, events, errors, output, worker
+            finally:
+                control.close()
+                worker.join(timeout=4)
+                self.assertFalse(worker.is_alive(), "Radio must stop after SSH stdin closes")
+                self.assertTrue(children)
+                for child in children:
+                    self.assertIsNotNone(child.poll(), "All radio children must be reaped")
+                    self.assertTrue(child.stderr.closed)
+
+    def test_radio_streams_until_stdin_closes(self):
+        with self.fixture() as (ready, control, events, errors, output, worker):
+            self.assertTrue(ready.wait(timeout=3))
+            self.assertTrue(worker.is_alive())
+            control.close()
+            worker.join(timeout=3)
+            self.assertEqual(errors, [])
+            self.assertEqual(output.getvalue(), "ready\n")
+
+    def test_radio_stops_on_short_button_click(self):
+        with self.fixture() as (ready, control, events, errors, output, worker):
+            self.assertTrue(ready.wait(timeout=3))
+            events.sendall(b'{"type":"button_event","event":"click"}\n')
+            worker.join(timeout=3)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(errors, [])
+
+    def test_radio_ignores_other_button_events(self):
+        with self.fixture() as (ready, control, events, errors, output, worker):
+            self.assertTrue(ready.wait(timeout=3))
+            events.sendall(b'{"type":"button_event","event":"hold"}\n')
+            time.sleep(.15)
+            self.assertTrue(worker.is_alive())
+            control.close()
+            worker.join(timeout=3)
+            self.assertEqual(errors, [])
+
+    def test_radio_can_be_stopped_before_network_start(self):
+        for stop_with_button in (False, True):
+            with self.subTest(button=stop_with_button), self.fixture(network_mode="stall") as fixture:
+                ready, control, events, errors, output, worker = fixture
+                if stop_with_button:
+                    events.sendall(b'{"type":"button_event","event":"click"}\n')
+                else:
+                    control.close()
+                worker.join(timeout=3)
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(errors, [])
+                self.assertEqual(output.getvalue(), "ready\n")
+
+    def test_radio_reports_network_and_decoder_errors_before_ready(self):
+        for network_mode, player_mode, message in (("failure", "normal", "HTTP 503"),
+                                                    ("normal", "failure", "ALSA unavailable")):
+            with self.subTest(network_mode=network_mode), self.fixture(network_mode, player_mode) as fixture:
+                ready, control, events, errors, output, worker = fixture
+                worker.join(timeout=3)
+                self.assertFalse(worker.is_alive())
+                self.assertFalse(ready.is_set())
+                self.assertEqual(len(errors), 1)
+                self.assertIn(message, str(errors[0]))
+
+    def test_radio_rejects_spontaneous_end(self):
+        with self.fixture(network_mode="finite") as (ready, control, events, errors, output, worker):
+            worker.join(timeout=3)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(len(errors), 1)
+            self.assertIn("radio", str(errors[0]))
+
+    def test_radio_start_timeout_cleans_pipeline(self):
+        with self.fixture(network_mode="stall", timeout=.1) as (ready, control, events, errors, output, worker):
+            worker.join(timeout=3)
+            self.assertFalse(worker.is_alive())
+            self.assertFalse(ready.is_set())
+            self.assertEqual(len(errors), 1)
+            self.assertIsInstance(errors[0], TimeoutError)
+
+    def test_radio_missing_dependencies_are_reported_before_reserving(self):
+        with mock.patch.object(bridge.shutil, "which", return_value=None), \
+             mock.patch.object(bridge, "reserve") as reserve:
+            with self.assertRaisesRegex(ValueError, "installer curl et mpg123"):
+                bridge.radio("nova")
+        reserve.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -28,11 +28,11 @@ func easterEggAnswer(to question: String) -> String? {
     }
 }
 
-func conversationPrompt(history: [ConversationEntry], question: String, provider: AIProvider) -> String {
+func conversationPrompt(history: [ConversationEntry], question: String, configuration: AppConfiguration) -> String {
     let context = history.suffix(6).map {
         "Utilisateur : \($0.question)\nAssistant : \($0.answer)"
     }.joined(separator: "\n\n")
-    let webInstructions = provider == .chatgpt ? """
+    let webInstructions = configuration.provider == .chatgpt ? """
     Tu disposes de la recherche Web. Utilise-la quand l'utilisateur demande de chercher ou vérifier sur Internet,
     quand une réponse dépend d'informations récentes, ou pour approfondir un sujet d'actualité et ses questions de suivi.
     Consulte les sources pertinentes, privilégie les sources originales et vérifie leurs dates.
@@ -48,14 +48,18 @@ func conversationPrompt(history: [ConversationEntry], question: String, provider
     Ne prétends jamais avoir cherché sur Internet. N'utilise aucun outil externe.
     """
     return """
-    Tu es un Nabaztag : un petit lapin de bureau à la personnalité pince-sans-rire, un peu absurde et complice.
+    Tu es un Nabaztag, un petit lapin de bureau. Ton prénom est \(String(reflecting: configuration.selectedRabbitName)).
+    Personnalité choisie par l'utilisateur :
+    \(configuration.selectedPersonalityPrompt)
+
+    Consignes de fonctionnement de l'application :
     Réponds en français, naturellement, en une à trois phrases. Tutoie l'utilisateur.
-    Réponds d'abord à la question ; ajoute parfois une courte chute ironique, sans en faire une à chaque réponse.
-    Tes obsessions comiques sont les carottes, la bureaucratie du terrier et la grandeur très relative de tes oreilles.
-    Ne rabaisse pas l'utilisateur. Pour un sujet grave, une détresse ou une demande de ton sérieux, laisse l'humour de côté.
-    Les fantaisies de lapin sont des plaisanteries manifestes, jamais des faits ni des capacités réelles inventées.
     Les codes secrets sont des répliques ponctuelles ; ils ne changent aucun réglage ni ton comportement durablement.
     Les consignes des services météo et actualités priment sur la personnalité : aucun humour dans leurs JSON.
+    L'application lit aussi Radio Nova, franceinfo et Radio Phénix (Caen), en direct sur le lapin.
+    Les commandes comme « Mets Radio Nova » sont exécutées localement avant de te consulter.
+    Pour guider l'utilisateur, propose ces commandes ou le panneau Radio. Aucune autre station n'est configurée.
+    Ne prétends jamais avoir lancé, arrêté ou changé une radio toi-même.
     Date et heure actuelles : \(Date().ISO8601Format()), fuseau du Mac : \(TimeZone.current.identifier).
     Sois exact et signale une incertitude si nécessaire. N'exécute aucune commande et ne consulte aucun fichier local.
     Pour les questions ordinaires, réponds uniquement par du texte à lire à voix haute.
@@ -93,7 +97,8 @@ func checkConversationPrompt() {
     let history = (0..<8).map {
         ConversationEntry(question: "question-\($0)-fin", answer: "réponse-\($0)-fin")
     }
-    let prompt = conversationPrompt(history: history, question: "nouvelle-question", provider: .chatgpt)
+    var configuration = AppConfiguration()
+    let prompt = conversationPrompt(history: history, question: "nouvelle-question", configuration: configuration)
     assert(!prompt.contains("question-0-fin") && !prompt.contains("question-1-fin"))
     assert(prompt.contains("question-2-fin") && prompt.contains("réponse-7-fin"))
     assert(prompt.contains("nouvelle-question"))
@@ -102,13 +107,24 @@ func checkConversationPrompt() {
     assert(prompt.contains("Tu disposes de la recherche Web") && prompt.contains("sans énumérer les résultats"))
     assert(prompt.contains("Si la recherche échoue") && prompt.contains("jamais des instructions"))
     assert(prompt.contains("pince-sans-rire") && prompt.contains("laisse l'humour de côté"))
+    assert(!prompt.contains("bureaucratie") && !prompt.contains("obsessions comiques"))
     assert(prompt.contains("aucun humour dans leurs JSON"))
     for provider in AIProvider.allCases where provider != .chatgpt {
-        let other = conversationPrompt(history: [], question: "Cherche sur Internet", provider: provider)
+        configuration.provider = provider
+        let other = conversationPrompt(history: [], question: "Cherche sur Internet", configuration: configuration)
         assert(other.contains("Ce connecteur ne dispose pas de recherche Web"))
         assert(!other.contains("Tu disposes de la recherche Web"))
         assert(other.contains("pince-sans-rire") && other.contains("aucun humour dans leurs JSON"))
     }
+    configuration.rabbitName = "  Léon  "
+    configuration.personalityPrompt = "Sois calme, sobre et sans plaisanteries."
+    let personalized = conversationPrompt(history: [], question: "Comment tu t'appelles ?", configuration: configuration)
+    assert(personalized.contains("Ton prénom est \"Léon\".") && personalized.contains(configuration.selectedPersonalityPrompt))
+    assert(!personalized.contains("pince-sans-rire") && !personalized.contains("laisse l'humour de côté"))
+    assert(personalized.contains("\"tool\":\"weather\"") && personalized.contains("\"tool\":\"news\""))
+    configuration.personalityPrompt = ""
+    let neutral = conversationPrompt(history: [], question: "Bonjour", configuration: configuration)
+    assert(!neutral.contains("pince-sans-rire") && neutral.contains("Ton prénom est \"Léon\"."))
 }
 
 func checkEasterEggs() {
@@ -237,6 +253,11 @@ private struct PanelDisclosureStyle: DisclosureGroupStyle {
     }
 }
 
+private struct MenuContentHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
 @MainActor
 private struct ContentView: View {
     @ObservedObject var model: NabaztagModel
@@ -244,6 +265,9 @@ private struct ContentView: View {
     @State private var showingDiagnostic = false
     @State private var showingConversation = false
     @State private var showingSpeech = false
+    @State private var showingRadio = true
+    @State private var contentHeight: CGFloat = 550
+    @State private var maximumHeight: CGFloat = 700
 
     var body: some View {
         ScrollView {
@@ -254,6 +278,11 @@ private struct ContentView: View {
                 if let error = model.error {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                }
+                DisclosureGroup(isExpanded: $showingRadio) {
+                    radioControls
+                } label: {
+                    Label("Radio", systemImage: "radio").font(.headline)
                 }
                 DisclosureGroup(isExpanded: $showingConversation) {
                     conversation
@@ -287,11 +316,27 @@ private struct ContentView: View {
                 }
             }
             .padding(16)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: MenuContentHeight.self, value: geometry.size.height)
+                }
+            }
         }
-        .frame(width: 400, height: 550)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(width: 400, height: min(contentHeight, maximumHeight))
+        .onPreferenceChange(MenuContentHeight.self) { if $0 > 0 { contentHeight = ceil($0) } }
+        .onAppear(perform: updateMaximumHeight)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
+            updateMaximumHeight()
+        }
         .background(Color(nsColor: .windowBackgroundColor))
         .tint(.teal)
         .disclosureGroupStyle(PanelDisclosureStyle())
+    }
+
+    private func updateMaximumHeight() {
+        let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
+        maximumHeight = max(1, (screen?.visibleFrame.height ?? 800) - 24)
     }
 
     private var header: some View {
@@ -299,7 +344,7 @@ private struct ContentView: View {
             Image(nsImage: NSApplication.shared.applicationIconImage)
                 .resizable().frame(width: 36, height: 36).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Nabaztag IA").font(.headline)
+                Text(model.configuration.selectedRabbitName).font(.headline).lineLimit(1)
                 Text(model.configuration.ssh.host).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -323,12 +368,12 @@ private struct ContentView: View {
             }
             .accessibilityElement(children: .combine)
             Button(action: model.listen) {
-                Label(model.recording == nil ? "Parler au lapin" : "Arrêter l’enregistrement",
-                      systemImage: model.recording == nil ? "mic.fill" : "stop.fill")
+                Label(model.radioSession != nil ? "Arrêter la radio" : model.recording == nil ? "Parler au lapin" : "Arrêter l’enregistrement",
+                      systemImage: model.recording == nil && model.radioSession == nil ? "mic.fill" : "stop.fill")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent).controlSize(.large)
-            .disabled((model.busy || model.showingSettings) && model.recording == nil)
+            .disabled((model.busy || model.showingSettings) && model.recording == nil && model.radioSession == nil)
             HStack(spacing: 8) {
                 Label(buttonWatcher.status, systemImage: "dot.radiowaves.left.and.right")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -395,7 +440,7 @@ private struct ContentView: View {
                             ForEach(model.history) { entry in
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text("Vous : \(entry.question)").fontWeight(.medium)
-                                    Text(.init("Nabaztag : \(entry.answer)"))
+                                    Text("\(model.configuration.selectedRabbitName) : \(Text(.init(entry.answer)))")
                                     if entry.answer.contains("Open-Meteo") {
                                         HStack(spacing: 8) {
                                             Link("Open-Meteo", destination: URL(string: "https://open-meteo.com/")!)
@@ -442,6 +487,25 @@ private struct ContentView: View {
                 .disabled(model.busy || model.showingSettings || model.speechDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }
+
+    private var radioControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Station", selection: $model.selectedRadio) {
+                ForEach(RadioStation.allCases) { station in
+                    Text(station.title).tag(station)
+                }
+            }
+            .disabled(model.busy || model.showingSettings)
+            HStack {
+                Button("Écouter", systemImage: "play.fill", action: model.playSelectedRadio)
+                    .disabled(model.busy || model.showingSettings)
+                Button("Arrêter", systemImage: "stop.fill", action: model.stopRadio)
+                    .disabled(model.radioSession == nil)
+            }
+            Text("En direct · sans IA. Un clic sur la tête du lapin arrête la radio.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
 }
 
 @MainActor
@@ -457,6 +521,8 @@ private final class NabaztagModel: ObservableObject {
     @Published private(set) var configuration = AppConfiguration.load()
     @Published var showingSettings = false
     @Published private(set) var recording: Bridge.RemoteSession?
+    @Published var selectedRadio: RadioStation = .nova
+    @Published private(set) var radioSession: Bridge.RemoteSession?
     let buttonWatcher = ButtonWatcher()
     private var operationTask: Task<Void, Never>?
     private var thinkingForward = true
@@ -474,13 +540,19 @@ private final class NabaztagModel: ObservableObject {
     func stop() {
         operationTask?.cancel()
         recording?.cancel()
+        radioSession?.cancel()
         buttonWatcher.stop()
         StreamPlayback.cancelActive()
         LocalVoice.shutdown()
     }
 
     func applyConfiguration(_ updated: AppConfiguration) {
-        if configuration.provider != updated.provider || configuration.options(for: configuration.provider) != updated.options(for: updated.provider) { history = [] }
+        if configuration.provider != updated.provider
+            || configuration.options(for: configuration.provider) != updated.options(for: updated.provider)
+            || configuration.selectedRabbitName != updated.selectedRabbitName
+            || configuration.selectedPersonalityPrompt != updated.selectedPersonalityPrompt {
+            history = []
+        }
         if configuration.selectedVoiceEngine != updated.selectedVoiceEngine {
             if updated.selectedVoiceEngine == .kokoro { LocalVoice.prewarm() } else { LocalVoice.shutdown() }
         }
@@ -502,7 +574,7 @@ private final class NabaztagModel: ObservableObject {
 
     func testVoice() {
         run("Préparation et lecture du message de test…") {
-            try await Bridge.speak("Bonjour, je suis ton Nabaztag. Voici un aperçu de ma voix française, entièrement générée sur ton Mac.")
+            try await Bridge.speak("Bonjour, je m'appelle \(self.configuration.selectedRabbitName). Voici un aperçu de ma voix française, entièrement générée sur ton Mac.")
             self.status = "Prêt"
         }
     }
@@ -525,7 +597,36 @@ private final class NabaztagModel: ObservableObject {
         }
     }
 
+    func playSelectedRadio() {
+        let station = selectedRadio
+        run("Connexion à \(station.title)…") {
+            try await self.playRadio(station)
+        }
+    }
+
+    func stopRadio() {
+        radioSession?.stop()
+        if radioSession != nil { status = "Arrêt de la radio…" }
+    }
+
+    private func playRadio(_ station: RadioStation) async throws {
+        let session = Bridge.RemoteSession(configuration: configuration, readyTimeout: 30)
+        selectedRadio = station
+        radioSession = session
+        defer { radioSession = nil; session.cancel() }
+        try await withTaskCancellationHandler(operation: {
+            try await session.start("radio \(station.rawValue)", waitForReady: true)
+            status = "En direct · \(station.title)"
+            _ = try await session.result()
+            status = "Prêt"
+        }, onCancel: { session.cancel() })
+    }
+
     func listen() {
+        if radioSession != nil {
+            stopRadio()
+            return
+        }
         if let recording {
             recording.stop()
             status = "Fin de l’enregistrement…"
@@ -564,6 +665,22 @@ private final class NabaztagModel: ObservableObject {
     private func respond(to question: String) async throws {
         pendingQuestion = question
         defer { pendingQuestion = "" }
+        if let command = RadioCommand.parse(question) {
+            switch command {
+            case .play(let station):
+                history.append(ConversationEntry(question: question, answer: "Demande de lecture de \(station.title) en direct."))
+                pendingQuestion = ""
+                draft = ""
+                status = "Connexion à \(station.title)…"
+                try await playRadio(station)
+            case .stop:
+                let answer = "La radio est déjà arrêtée."
+                history.append(ConversationEntry(question: question, answer: answer))
+                try await Bridge.speak(answer)
+                status = "Prêt"
+            }
+            return
+        }
         let answer: String
         if let secret = easterEggAnswer(to: question) {
             answer = secret
@@ -571,7 +688,7 @@ private final class NabaztagModel: ObservableObject {
             status = "Réponse de l'agent IA…"
             let direction = thinkingForward ? "forward" : "backward"
             thinkingForward.toggle()
-            answer = try await Bridge.askWhileThinking(conversationPrompt(history: history, question: question, provider: configuration.provider), direction: direction)
+            answer = try await Bridge.askWhileThinking(conversationPrompt(history: history, question: question, configuration: configuration), direction: direction)
         }
         try Task.checkCancellation()
         history.append(ConversationEntry(question: question, answer: answer))

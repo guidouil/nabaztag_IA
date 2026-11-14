@@ -443,23 +443,24 @@ enum Bridge {
             let deadline = ProcessInfo.processInfo.systemUptime + readyTimeout
             while ProcessInfo.processInfo.systemUptime < deadline {
                 lock.lock()
-                let interrupted = canceled, child = process, stdout = folder?.appendingPathComponent("stdout")
+                let interrupted = canceled, stopRequested = stopped, child = process, stdout = folder?.appendingPathComponent("stdout")
                 lock.unlock()
                 if interrupted { throw CancellationError() }
+                if stopRequested { return }
                 if let stdout {
                     let handle = try FileHandle(forReadingFrom: stdout)
                     let data = try handle.read(upToCount: 65) ?? Data()
                     try handle.close()
                     if data.starts(with: Data("ready\n".utf8)) { return }
-                    if data.contains(10) || data.count > 64 { throw Failure(message: "Signal de réflexion du lapin invalide.") }
+                    if data.contains(10) || data.count > 64 { throw Failure(message: "Signal de préparation du lapin invalide.") }
                 }
                 if child?.isRunning != true {
-                    throw Failure(message: "Le lapin n’a pas démarré la réflexion : \(diagnostic())")
+                    throw Failure(message: "Le lapin n’a pas démarré la commande : \(diagnostic())")
                 }
                 Thread.sleep(forTimeInterval: 0.01)
             }
             cancel()
-            throw Failure(message: "Délai de préparation de la réflexion du lapin dépassé.")
+            throw Failure(message: "Délai de préparation du lapin dépassé.")
         }
 
         func stop() {
@@ -476,12 +477,13 @@ enum Bridge {
             try? handle.close()
         }
 
-        func result(timeout: Double) async throws -> Data {
+        func result(timeout: Double? = nil) async throws -> Data {
             try await Task.detached(priority: .userInitiated) { try self.resultSync(timeout: timeout) }.value
         }
 
-        private func resultSync(timeout: Double) throws -> Data {
-            guard ended.wait(timeout: .now() + timeout) == .success else {
+        private func resultSync(timeout: Double?) throws -> Data {
+            let deadline: DispatchTime = timeout.map { .now() + $0 } ?? .distantFuture
+            guard ended.wait(timeout: deadline) == .success else {
                 cancel()
                 throw Failure(message: "Délai de commande du lapin dépassé.")
             }

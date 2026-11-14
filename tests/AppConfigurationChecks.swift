@@ -8,6 +8,9 @@ struct AppConfigurationChecks {
         config.ssh.host = "nabaztag-609.local"
         try config.validate()
         assert(config.provider == .chatgpt)
+        assert(config.selectedRabbitName == "Nabaztag")
+        assert(config.selectedPersonalityPrompt == AppConfiguration.defaultPersonalityPrompt)
+        assert(!config.selectedPersonalityPrompt.contains("bureaucratie"))
         assert(config.animationsEnabled)
         assert(config.selectedEarMotion == .on && config.selectedLightMode == .fixed)
         assert(config.selectedLightColorHex == "002838")
@@ -63,6 +66,36 @@ struct AppConfigurationChecks {
         let migrated = try JSONDecoder().decode(AppConfiguration.self, from: JSONSerialization.data(withJSONObject: legacy))
         assert(migrated.voiceEngine == nil && migrated.ssh.host == config.ssh.host && migrated.provider == config.provider)
         assert(migrated.animationsEnabled)
+        assert(migrated.rabbitName == nil && migrated.personalityPrompt == nil)
+        assert(migrated.selectedRabbitName == AppConfiguration.defaultRabbitName)
+        assert(migrated.selectedPersonalityPrompt == AppConfiguration.defaultPersonalityPrompt)
+        var personalized = migrated
+        personalized.rabbitName = "  Théodore  "
+        personalized.personalityPrompt = "Réponds sobrement.\nAucune plaisanterie."
+        try personalized.validate()
+        assert(personalized.selectedRabbitName == "Théodore")
+        let restoredPersonality = try JSONDecoder().decode(AppConfiguration.self, from: JSONEncoder().encode(personalized))
+        assert(restoredPersonality.rabbitName == personalized.rabbitName)
+        assert(restoredPersonality.personalityPrompt == personalized.personalityPrompt)
+        assert(restoredPersonality.ssh == migrated.ssh && restoredPersonality.providers == migrated.providers)
+        personalized.rabbitName = "   "
+        personalized.personalityPrompt = ""
+        try personalized.validate()
+        assert(personalized.selectedRabbitName == "Nabaztag" && personalized.selectedPersonalityPrompt.isEmpty)
+        let emptyPersonality = try JSONDecoder().decode(AppConfiguration.self, from: JSONEncoder().encode(personalized))
+        assert(emptyPersonality.selectedPersonalityPrompt.isEmpty)
+        personalized.personalityPrompt = nil
+        for name in ["un\nnom", "un\rnom", "un\0nom", String(repeating: "é", count: 81)] {
+            personalized.rabbitName = name
+            do { try personalized.validate(); assertionFailure("Prénom invalide accepté") } catch {}
+        }
+        personalized.rabbitName = String(repeating: "é", count: 80)
+        personalized.personalityPrompt = String(repeating: "é", count: 8_000)
+        try personalized.validate()
+        for prompt in [String(repeating: "é", count: 8_001), "texte\0invalide"] {
+            personalized.personalityPrompt = prompt
+            do { try personalized.validate(); assertionFailure("Prompt invalide accepté") } catch {}
+        }
         for oldSetting: Bool? in [nil, true, false] {
             var oldJSON = legacy
             oldJSON["animateResponses"] = oldSetting
@@ -122,6 +155,6 @@ struct AppConfigurationChecks {
             config.providers[AIProvider.claude.rawValue]?.baseURL = endpoint
             do { try config.validate(); assertionFailure("URL dangereuse acceptée") } catch {}
         }
-        print("Tests AppConfiguration : OK (défauts, migrations vers oreilles on/off, Claude abonnement/API séparés, six combinaisons d’effets, couleurs, JSON, voix et autres réglages préservés).")
+        print("Tests AppConfiguration : OK (défauts, prénom et personnalité, migrations, abonnements/API séparés, effets, couleurs, JSON, voix et autres réglages préservés).")
     }
 }

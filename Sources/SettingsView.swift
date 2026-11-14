@@ -12,118 +12,37 @@ struct SettingsView: View {
     @State private var confirmingTrust = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Réglages de Nabaztag IA").font(.title2.bold())
-            ScrollView {
-                Form {
-                    Section("Connexion au lapin") {
-                        TextField("IP ou nom local", text: $configuration.ssh.host)
-                        TextField("Identifiant SSH", text: $configuration.ssh.username)
-                        Picker("Authentification", selection: $configuration.ssh.authentication) {
-                            Text("Clé SSH").tag(SSHAuthentication.key)
-                            Text("Mot de passe").tag(SSHAuthentication.password)
-                        }
-                        if configuration.ssh.authentication == .key {
-                            TextField("Fichier de clé privée", text: $configuration.ssh.keyPath)
-                        } else {
-                            SecureField("Mot de passe SSH", text: $sshPassword)
-                            Text("Enregistré dans le Trousseau macOS pour cet identifiant et cet hôte. Laisse le champ vide pour conserver le mot de passe déjà enregistré.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        HStack {
-                            Button("Vérifier l’empreinte SSH") { scanHost() }
-                            if let scan, !scan.alreadyKnown {
-                                Button("Faire confiance à cette empreinte") { confirmingTrust = true }
-                            }
-                        }
-                        if let scan {
-                            Text(scan.fingerprints).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                            Text(scan.alreadyKnown ? "Cet hôte figure déjà dans les hôtes SSH connus. Une clé modifiée sera refusée lors de la connexion." : "Compare cette empreinte avec celle du lapin avant de l’accepter.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Section("Intelligence artificielle") {
-                        Picker("Fournisseur", selection: $configuration.provider) {
-                            ForEach(AIProvider.allCases) { provider in Text(provider.title).tag(provider) }
-                        }
-                        if configuration.provider == .chatgpt {
-                            Text("Utilise la connexion ChatGPT de Codex sur ce Mac et les limites de ton abonnement. Aucune clé API requise.")
-                                .font(.callout).foregroundStyle(.secondary)
-                        } else if configuration.provider == .claudeCode {
-                            Text("Utilise l’outil officiel Claude Code et un abonnement Claude compatible sur ce Mac. Les limites et les éventuels crédits supplémentaires sont ceux de ton compte Claude. Aucune clé API n’est utilisée par ce mode.")
-                                .font(.callout).foregroundStyle(.secondary)
-                            Text(ClaudeCode.isInstalled ? "Claude Code est installé. La connexion au compte reste gérée par l’outil officiel." : "Claude Code n’est pas installé. Installe-le avant d’utiliser ce fournisseur.")
-                                .font(.caption).foregroundStyle(.secondary)
-                            Text("[Instructions d’installation officielles](https://code.claude.com/docs/en/setup)")
-                                .font(.caption)
-                            Text("Dans Terminal :\nclaude auth login\nclaude auth status --text")
-                                .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                            Text("Choisis le compte lié à ton abonnement. Aucun mot de passe ni jeton Claude n’est saisi dans cette application. Une erreur de connexion ou de quota ne déclenche aucun repli vers l’API.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        } else if configuration.provider == .grokBuild {
-                            Text("Utilise l’outil officiel Grok Build avec un abonnement SuperGrok ou X Premium+ compatible. Les limites et les éventuels crédits supplémentaires dépendent de ton compte Grok. Aucune clé API n’est utilisée par ce mode.")
-                                .font(.callout).foregroundStyle(.secondary)
-                            Text(GrokBuild.isInstalled ? "Grok Build est installé. La connexion au compte reste gérée par l’outil officiel." : "Grok Build n’est pas installé. Installe-le avant d’utiliser ce fournisseur.")
-                                .font(.caption).foregroundStyle(.secondary)
-                            Text("[Instructions d’installation officielles](https://docs.x.ai/build/overview)")
-                                .font(.caption)
-                            Text("Dans Terminal :\ngrok login")
-                                .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                            Text("Connecte le compte lié à ton abonnement. Aucun mot de passe ni jeton Grok n’est saisi dans cette application. Les erreurs sont affichées sans repli vers le connecteur Grok API.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        } else if configuration.provider.usesAPI {
-                            TextField("Modèle", text: modelBinding)
-                            TextField("Adresse de l’API", text: endpointBinding)
-                            SecureField("Clé API", text: $apiKey)
-                            Text("Clé stockée dans le Trousseau ; un champ vide conserve la clé enregistrée pour cette adresse. Ces appels utilisent l’API du fournisseur : vérifie sa tarification et ses quotas. Les abonnements aux applications de chat ne sont pas utilisés ici.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-
-                    Section("Voix") {
-                        Picker("Voix des réponses", selection: Binding(get: { configuration.selectedVoiceEngine }, set: { configuration.voiceEngine = $0 })) {
-                            ForEach(VoiceEngine.allCases) { voice in Text(voice.title).tag(voice) }
-                        }
-                        Text(LocalVoice.isInstalled ? "Kokoro est installé sur ce Mac : voix française féminine Siwis, sans clé API et sans consommation de tokens. La génération reste locale." : "Kokoro n’est pas installé sur ce Mac. Le README explique son installation ; Thomas reste disponible.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Text("La transcription reste assurée localement par macOS. Whisper transcrit la parole et ne produit pas de voix. Le texte des questions et réponses est envoyé au fournisseur IA choisi.")
-                            .font(.callout).foregroundStyle(.secondary)
-                    }
-
-                    Section("Animations") {
-                        Toggle("Mouvements des oreilles", isOn: Binding(get: { configuration.selectedEarMotion == .on }, set: { configuration.earMotion = $0 ? .on : .off }))
-                            .toggleStyle(.switch)
-                        Picker("Lumières", selection: Binding(get: { configuration.selectedLightMode }, set: { configuration.lightMode = $0 })) {
-                            ForEach(LightMode.allCases) { mode in Text(mode.title).tag(mode) }
-                        }
-                        if configuration.selectedLightMode == .fixed {
-                            ColorPicker("Couleur des lumières", selection: lightColorBinding, supportsOpacity: false)
-                        }
-                        Text("Pendant les réponses et le test de voix. Aucun effet pendant l’écoute du micro.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-
-                    DisclosureGroup("Aide pour les clés et les autres lapins") {
-                        Text("Ce lapin possède déjà le relais audio et une clé dédiée. Pour une autre machine sous Pynab, installe d’abord le relais bridge_remote.py fourni avec l’application ; le fichier README décrit la procédure. Un nom comme nabaztag-609.local convient s’il se résout sur ton réseau.")
-                            .font(.callout)
-                        Text("Pour créer une clé dans Terminal :\nssh-keygen -t ed25519\nPuis ajoute le contenu du fichier public .pub dans ~/.ssh/authorized_keys du compte du lapin. Seule la clé publique est copiée ; la clé privée reste sur ce Mac.")
-                            .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                        Text("Une erreur « Permission denied » concerne les identifiants. « Host key verification failed » nécessite de vérifier l’empreinte. « No route to host » nécessite de vérifier le Wi-Fi et l’autorisation Réseau local de macOS.")
-                            .font(.caption).foregroundStyle(.secondary)
+        TabView {
+            personalitySettings
+                .tabItem { Label("Personnalité", systemImage: "person.crop.circle") }
+            aiSettings
+                .tabItem { Label("IA", systemImage: "brain") }
+            voiceSettings
+                .tabItem { Label("Voix", systemImage: "speaker.wave.2") }
+            animationSettings
+                .tabItem { Label("Animations", systemImage: "sparkles") }
+            connectionSettings
+                .tabItem { Label("Connexion", systemImage: "network") }
+        }
+        .formStyle(.grouped)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                Divider()
+                VStack(alignment: .leading, spacing: 12) {
+                    if !message.isEmpty { Text(message).font(.callout).textSelection(.enabled) }
+                    HStack {
+                        Spacer()
+                        Button("Annuler") { dismiss() }.keyboardShortcut(.cancelAction)
+                        Button("Enregistrer") { save() }.buttonStyle(.borderedProminent)
                     }
                 }
-                .formStyle(.grouped)
+                .padding(20)
             }
-            if !message.isEmpty { Text(message).font(.callout).textSelection(.enabled) }
-            HStack {
-                Spacer()
-                Button("Annuler") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Enregistrer") { save() }.buttonStyle(.borderedProminent)
-            }
+            .background(.bar)
         }
-        .padding(20)
-        .frame(width: 660, height: 700)
+        .frame(width: 660)
+        .frame(minHeight: 500, idealHeight: 540, maxHeight: .infinity)
+        .background(SettingsWindowTitle())
         .disabled(busy)
         .onAppear {
             configuration = .load()
@@ -141,6 +60,141 @@ struct SettingsView: View {
             Button("Accepter l’empreinte") { acceptHost() }
         } message: {
             Text("\(scan?.host ?? "")\n\(scan?.fingerprints ?? "")\nAccepte uniquement si cette empreinte correspond bien à ton lapin.")
+        }
+    }
+
+    private var personalitySettings: some View {
+        Form {
+            Section("Personnalité du lapin") {
+                TextField("Prénom", text: Binding(get: { configuration.rabbitName ?? AppConfiguration.defaultRabbitName },
+                                                 set: { configuration.rabbitName = $0 }))
+                Text("Prompt de personnalité").font(.callout)
+                TextEditor(text: Binding(get: { configuration.selectedPersonalityPrompt },
+                                         set: { configuration.personalityPrompt = $0 }))
+                    .font(.body)
+                    .scrollContentBackground(.hidden)
+                    .padding(6)
+                    .frame(minHeight: 140)
+                    .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.secondary.opacity(0.3)))
+                    .accessibilityLabel("Prompt de personnalité")
+                Button("Rétablir le prompt par défaut") { configuration.personalityPrompt = nil }
+                Text("Le prénom et ce prompt s’appliquent aux réponses IA. Un prompt vide retire les consignes de personnalité. Modifier le prénom ou le prompt redémarre la conversation à l’enregistrement. Les bulletins météo, actualités et codes secrets gardent leur texte dédié.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var aiSettings: some View {
+        Form {
+            Section("Intelligence artificielle") {
+                Picker("Fournisseur", selection: $configuration.provider) {
+                    ForEach(AIProvider.allCases) { provider in Text(provider.title).tag(provider) }
+                }
+                if configuration.provider == .chatgpt {
+                    Text("Utilise la connexion ChatGPT de Codex sur ce Mac et les limites de ton abonnement. Aucune clé API requise.")
+                        .font(.callout).foregroundStyle(.secondary)
+                } else if configuration.provider == .claudeCode {
+                    Text("Utilise l’outil officiel Claude Code et un abonnement Claude compatible sur ce Mac. Les limites et les éventuels crédits supplémentaires sont ceux de ton compte Claude. Aucune clé API n’est utilisée par ce mode.")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Text(ClaudeCode.isInstalled ? "Claude Code est installé. La connexion au compte reste gérée par l’outil officiel." : "Claude Code n’est pas installé. Installe-le avant d’utiliser ce fournisseur.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("[Instructions d’installation officielles](https://code.claude.com/docs/en/setup)")
+                        .font(.caption)
+                    Text("Dans Terminal :\nclaude auth login\nclaude auth status --text")
+                        .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    Text("Choisis le compte lié à ton abonnement. Aucun mot de passe ni jeton Claude n’est saisi dans cette application. Une erreur de connexion ou de quota ne déclenche aucun repli vers l’API.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else if configuration.provider == .grokBuild {
+                    Text("Utilise l’outil officiel Grok Build avec un abonnement SuperGrok ou X Premium+ compatible. Les limites et les éventuels crédits supplémentaires dépendent de ton compte Grok. Aucune clé API n’est utilisée par ce mode.")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Text(GrokBuild.isInstalled ? "Grok Build est installé. La connexion au compte reste gérée par l’outil officiel." : "Grok Build n’est pas installé. Installe-le avant d’utiliser ce fournisseur.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("[Instructions d’installation officielles](https://docs.x.ai/build/overview)")
+                        .font(.caption)
+                    Text("Dans Terminal :\ngrok login")
+                        .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    Text("Connecte le compte lié à ton abonnement. Aucun mot de passe ni jeton Grok n’est saisi dans cette application. Les erreurs sont affichées sans repli vers le connecteur Grok API.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else if configuration.provider.usesAPI {
+                    TextField("Modèle", text: modelBinding)
+                    TextField("Adresse de l’API", text: endpointBinding)
+                    SecureField("Clé API", text: $apiKey)
+                    Text("Clé stockée dans le Trousseau ; un champ vide conserve la clé enregistrée pour cette adresse. Ces appels utilisent l’API du fournisseur : vérifie sa tarification et ses quotas. Les abonnements aux applications de chat ne sont pas utilisés ici.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var voiceSettings: some View {
+        Form {
+            Section("Voix") {
+                Picker("Voix des réponses", selection: Binding(get: { configuration.selectedVoiceEngine }, set: { configuration.voiceEngine = $0 })) {
+                    ForEach(VoiceEngine.allCases) { voice in Text(voice.title).tag(voice) }
+                }
+                Text(LocalVoice.isInstalled ? "Kokoro est installé sur ce Mac : voix française féminine Siwis, sans clé API et sans consommation de tokens. La génération reste locale." : "Kokoro n’est pas installé sur ce Mac. Le README explique son installation ; Thomas reste disponible.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("La transcription reste assurée localement par macOS. Whisper transcrit la parole et ne produit pas de voix. Le texte des questions et réponses est envoyé au fournisseur IA choisi.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var animationSettings: some View {
+        Form {
+            Section("Animations") {
+                Toggle("Mouvements des oreilles", isOn: Binding(get: { configuration.selectedEarMotion == .on }, set: { configuration.earMotion = $0 ? .on : .off }))
+                    .toggleStyle(.switch)
+                Picker("Lumières", selection: Binding(get: { configuration.selectedLightMode }, set: { configuration.lightMode = $0 })) {
+                    ForEach(LightMode.allCases) { mode in Text(mode.title).tag(mode) }
+                }
+                if configuration.selectedLightMode == .fixed {
+                    ColorPicker("Couleur des lumières", selection: lightColorBinding, supportsOpacity: false)
+                }
+                Text("Pendant les réponses et le test de voix. Aucun effet pendant l’écoute du micro.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var connectionSettings: some View {
+        Form {
+            Section("Connexion au lapin") {
+                TextField("IP ou nom local", text: $configuration.ssh.host)
+                TextField("Identifiant SSH", text: $configuration.ssh.username)
+                Picker("Authentification", selection: $configuration.ssh.authentication) {
+                    Text("Clé SSH").tag(SSHAuthentication.key)
+                    Text("Mot de passe").tag(SSHAuthentication.password)
+                }
+                if configuration.ssh.authentication == .key {
+                    TextField("Fichier de clé privée", text: $configuration.ssh.keyPath)
+                } else {
+                    SecureField("Mot de passe SSH", text: $sshPassword)
+                    Text("Enregistré dans le Trousseau macOS pour cet identifiant et cet hôte. Laisse le champ vide pour conserver le mot de passe déjà enregistré.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button("Vérifier l’empreinte SSH") { scanHost() }
+                    if let scan, !scan.alreadyKnown {
+                        Button("Faire confiance à cette empreinte") { confirmingTrust = true }
+                    }
+                }
+                if let scan {
+                    Text(scan.fingerprints).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    Text(scan.alreadyKnown ? "Cet hôte figure déjà dans les hôtes SSH connus. Une clé modifiée sera refusée lors de la connexion." : "Compare cette empreinte avec celle du lapin avant de l’accepter.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            DisclosureGroup("Aide pour les clés et les autres lapins") {
+                Text("Ce lapin possède déjà le relais audio et une clé dédiée. Pour une autre machine sous Pynab, installe d’abord le relais bridge_remote.py fourni avec l’application ; le fichier README décrit la procédure. Un nom comme nabaztag-609.local convient s’il se résout sur ton réseau.")
+                    .font(.callout)
+                Text("Pour créer une clé dans Terminal :\nssh-keygen -t ed25519\nPuis ajoute le contenu du fichier public .pub dans ~/.ssh/authorized_keys du compte du lapin. Seule la clé publique est copiée ; la clé privée reste sur ce Mac.")
+                    .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                Text("Une erreur « Permission denied » concerne les identifiants. « Host key verification failed » nécessite de vérifier l’empreinte. « No route to host » nécessite de vérifier le Wi-Fi et l’autorisation Réseau local de macOS.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -179,6 +233,7 @@ struct SettingsView: View {
             configuration.ssh.host = configuration.ssh.host.trimmingCharacters(in: .whitespacesAndNewlines)
             configuration.ssh.username = configuration.ssh.username.trimmingCharacters(in: .whitespacesAndNewlines)
             try configuration.validate()
+            configuration.rabbitName = configuration.selectedRabbitName
             if configuration.selectedVoiceEngine == .kokoro && !LocalVoice.isInstalled {
                 throw Bridge.Failure(message: "Installe le moteur Kokoro local avant de le sélectionner, ou choisis Thomas.")
             }
@@ -229,6 +284,24 @@ struct SettingsView: View {
             defer { busy = false }
             do { try await SSHTrust.accept(scan); self.scan = nil; message = "Empreinte SSH enregistrée." }
             catch { message = error.localizedDescription }
+        }
+    }
+}
+
+private struct SettingsWindowTitle: NSViewRepresentable {
+    func makeNSView(context: Context) -> TitleView { TitleView() }
+    func updateNSView(_ nsView: TitleView, context: Context) {}
+
+    final class TitleView: NSView {
+        private var titleObservation: NSKeyValueObservation?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            // Settings remplace le titre à chaque changement d’onglet.
+            titleObservation = window?.observe(\.title, options: [.initial, .new]) { window, _ in
+                let title = "Réglage de Nabaztag IA"
+                if window.title != title { window.title = title }
+            }
         }
     }
 }

@@ -12,6 +12,7 @@ import platform
 import random
 import select
 import shlex
+import shutil
 import signal
 import socket
 import struct
@@ -39,6 +40,13 @@ DEFAULT_EFFECTS = ("on", "fixed", "002838")
 STREAMING_CHOREOGRAPHY_TICKS = (70, 45, 72, 63)
 LIGHT_PALETTE = ((56, 8, 32), (64, 28, 0), (8, 56, 24),
                  (8, 24, 64), (40, 12, 56), (0, 40, 56))
+RADIO_STREAMS = {
+    "nova": "https://novazz.ice.infomaniak.ch/novazz-128.mp3",
+    "franceinfo": "https://icecast.radiofrance.fr/franceinfo-midfi.mp3",
+    "phenix": "https://live.radio-campus.org:8002/caen.mp3",
+}
+RADIO_START_TIMEOUT = 12
+RADIO_STALL_TIMEOUT = 20
 
 
 def parse_action(command):
@@ -49,6 +57,8 @@ def parse_action(command):
         return args[0], None
     if len(args) == 2 and args[0] == "think" and args[1] in ("forward", "backward"):
         return "think", args[1]
+    if len(args) == 2 and args[0] == "radio" and args[1] in RADIO_STREAMS:
+        return "radio", args[1]
     if len(args) == 4 and args[0] in ("play-animated", "play-stream", "play-queue"):
         ears, lights, color = args[1:]
         if ears in ("off", "on", "small", "large") and lights in ("off", "fixed", "random") and \
@@ -58,7 +68,7 @@ def parse_action(command):
         duration = int(args[1])
         if 1 <= duration <= 15:
             return "record", duration
-    raise ValueError("Commandes autorisées : diagnostic, record N (1..15), record-until-stop, think forward|backward, play, play-animated, play-stream, play-queue, watch-button")
+    raise ValueError("Commandes autorisées : diagnostic, record N (1..15), record-until-stop, think forward|backward, radio nova|franceinfo|phenix, play, play-animated, play-stream, play-queue, watch-button")
 
 
 def validate_wav(data):
@@ -290,6 +300,103 @@ def think(direction):
         finally:
             for signum, handler in handlers.items():
                 signal.signal(signum, handler)
+
+
+def radio(station):
+    url = RADIO_STREAMS[station]
+    if not all(shutil.which(command) for command in ("curl", "mpg123")):
+        raise ValueError("Radio indisponible : installer curl et mpg123 sur le lapin, puis réessayer")
+    with reserve() as (sock, stream):
+        children, diagnostics = [], {}
+        try:
+            network = subprocess.Popen(
+                ["curl", "--disable", "--fail", "--silent", "--show-error", "--location", "--no-buffer",
+                 "--proto", "=https", "--proto-redir", "=https", "--max-redirs", "5",
+                 "--connect-timeout", "10", "--speed-limit", "1", "--speed-time", "15",
+                 "--header", "Icy-MetaData: 0", url],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            children.append(network)
+            player = subprocess.Popen(
+                ["mpg123", "--quiet", "--no-control", "-o", "alsa", "-a", DEVICE, "-"],
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            )
+            children.append(player)
+            output_fd = player.stdin.fileno()
+            os.set_blocking(output_fd, False)
+            input_fd, network_fd = sys.stdin.fileno(), network.stdout.fileno()
+            errors = {child.stderr.fileno(): child for child in children}
+            diagnostics = {child: b"" for child in children}
+            started = last_write = time.monotonic()
+            first_write, ready, pending = None, False, b""
+            while True:
+                now = time.monotonic()
+                if not ready and now - started >= RADIO_START_TIMEOUT:
+                    raise TimeoutError("La radio n’a pas démarré dans le délai prévu")
+                if pending and now - last_write >= RADIO_STALL_TIMEOUT:
+                    raise TimeoutError("Le lecteur radio ne consomme plus l’audio")
+                readable, writable, _ = select.select(
+                    [sock, input_fd] + list(errors) + ([network_fd] if len(pending) < 32768 else []),
+                    [output_fd] if pending else [], [], 0.1,
+                )
+                if input_fd in readable:
+                    if os.read(input_fd, 64):
+                        raise ValueError("La radio s’arrête en fermant son entrée")
+                    if not ready:
+                        print("ready", flush=True)
+                    return
+                if sock in readable:
+                    packet = receive(sock, stream, time.monotonic() + 1)
+                    if packet.get("type") == "button_event" and packet.get("event") == "click":
+                        if not ready:
+                            print("ready", flush=True)
+                        return
+                for descriptor in list(errors):
+                    if descriptor in readable:
+                        data = os.read(descriptor, 4096)
+                        child = errors[descriptor]
+                        diagnostics[child] = (diagnostics[child] + data)[-2048:]
+                        if not data:
+                            del errors[descriptor]
+                for child, name in ((network, "Flux radio"), (player, "mpg123")):
+                    if child.poll() is not None:
+                        detail = diagnostics[child].decode("utf-8", "replace").strip()
+                        raise ValueError(name + " interrompu : " + (detail or "connexion ou lecture terminée"))
+                if network_fd in readable:
+                    data = os.read(network_fd, 16384)
+                    if not data:
+                        detail = diagnostics[network].decode("utf-8", "replace").strip()
+                        raise ValueError("Le flux radio a fermé la connexion" + (" : " + detail if detail else ""))
+                    if not pending:
+                        last_write = time.monotonic()
+                    pending += data
+                if output_fd in writable:
+                    try:
+                        count = os.write(output_fd, pending)
+                    except BlockingIOError:
+                        count = 0
+                    if count:
+                        pending = pending[count:]
+                        last_write = time.monotonic()
+                        if first_write is None:
+                            first_write = last_write
+                # Data has reached the decoder; give immediate ALSA failures time to surface.
+                if not ready and first_write is not None and time.monotonic() - first_write >= 0.2:
+                    print("ready", flush=True)
+                    ready = True
+        finally:
+            for child in children:
+                if child.poll() is None:
+                    child.terminate()
+            for child in children:
+                try:
+                    child.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait(timeout=5)
+                for handle in (child.stdin, child.stdout, child.stderr):
+                    if handle is not None:
+                        handle.close()
 
 
 def response_choreography(duration, options=DEFAULT_EFFECTS, ear_state=None):
@@ -564,6 +671,8 @@ def stream_play(input_stream, options=DEFAULT_EFFECTS, queued=False):
 
 def diagnostic():
     result = {"bridge_version": 1, "uname": platform.uname()._asdict(), "commands": {}}
+    missing_radio = [command for command in ("curl", "mpg123") if not shutil.which(command)]
+    result["radio"] = {"available": not missing_radio, "missing_commands": missing_radio}
     commands = [
         ["git", "-C", "/opt/pynab", "describe", "--tags", "--always"],
         ["systemctl", "is-active", "nabd.service", "nabweb.service", "nginx.service"],
@@ -604,6 +713,8 @@ def main():
             record(argument)
         elif action == "think":
             think(argument)
+        elif action == "radio":
+            radio(argument)
         elif action == "watch-button":
             watch_button()
         elif action in ("play-stream", "play-queue"):
