@@ -6,7 +6,9 @@ Le lapin fournit le micro et le haut-parleur. Le Mac transcrit la parole localem
 
 ## Installation depuis un DMG
 
-Les versions distribuées sont destinées aux **Mac Apple Silicon sous macOS 14 ou plus récent**. Voir le [guide d'installation](DISTRIBUTION.md) pour préparer son propre lapin et ses accès IA. Les DMG publics seront proposés dans les [Releases GitHub](https://github.com/guidouil/nabaztag_IA/releases) avec l'app signée et notarisée par Apple.
+**[Télécharger Nabaztag IA 0.13 (.dmg)](https://github.com/guidouil/nabaztag_IA/releases/download/v0.13/Nabaztag-IA-0.13-arm64.dmg)** — préversion pour **Mac Apple Silicon sous macOS 14 ou plus récent**.
+
+Le DMG contient l'app signée et notarisée par Apple. Voir le [guide d'installation](DISTRIBUTION.md) pour préparer son propre lapin et ses accès IA, et les [notes de version](https://github.com/guidouil/nabaztag_IA/releases/tag/v0.13) pour les prérequis et limites.
 
 ## Lancer
 
