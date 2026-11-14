@@ -4,6 +4,10 @@ Le lapin fournit le micro et le haut-parleur. Le Mac transcrit la parole localem
 
 ![Nabaztag IA : réglages de personnalité à gauche et panneau de contrôle à droite](Assets/Screenshot.png)
 
+## Installation depuis un DMG
+
+Les versions distribuées sont destinées aux **Mac Apple Silicon sous macOS 14 ou plus récent**. Voir le [guide d'installation](DISTRIBUTION.md) pour préparer son propre lapin et ses accès IA. Les DMG publics seront proposés dans les [Releases GitHub](https://github.com/guidouil/nabaztag_IA/releases) avec l'app signée et notarisée par Apple.
+
 ## Lancer
 
 1. Mettre le Mac et le Nabaztag sur le même réseau. Les réglages initiaux sont **192.168.68.54**, compte SSH **pi**, clé dédiée déjà installée. **nabaztag-609.local** a été vérifié : il se résout vers cette même IP.
@@ -272,3 +276,41 @@ Depuis le dossier du projet :
 Ces contrôles couvrent les commandes SSH, les WAV et le PCM progressif, la libération Pynab, les événements bouton, le worker vocal et les processus, le contexte, les URL, les formats REST, les fixtures des connecteurs Claude Code et Grok Build et le refus de remplacement des clés d'hôtes. Ils n'utilisent aucun secret réel et n'appellent pas les API fournisseurs. Ils ne remplacent pas un essai parlé et une écoute du haut-parleur.
 
 La chaîne vocale complète a été testée avec l'utilisateur : une question parlée a reçu la réponse correcte « sept » sur le lapin. Voir [DIAGNOSTIC.md](DIAGNOSTIC.md) pour les mesures et les limites du contrôle initial. Une reconstruction de cette application signée localement peut provoquer une nouvelle demande d'autorisation macOS.
+
+## Préparer un DMG pour GitHub
+
+Le script `release.command` utilise le projet Xcode existant en **Release, arm64, macOS 14 minimum**. Il compile dans `.build/release`, sans remplacer l'app locale ni demander de la quitter. Le DMG contient l'app, un lien vers Applications et le [guide d'installation](DISTRIBUTION.md). Les outils IA, modèles vocaux et identifiants personnels ne sont pas embarqués. La notarisation passe par le compte déjà connecté dans Xcode ; aucun mot de passe pour application Apple n'est nécessaire dans cette procédure.
+
+Pour vérifier localement la fabrication du DMG, sans contacter Apple :
+
+```sh
+./release.command --preview
+```
+
+Cela crée `dist/Nabaztag-IA-0.13-arm64-non-notarise.dmg`, signé seulement pour un usage local. Ce fichier n'est pas destiné à la publication.
+
+Pour une version publique, créer dans **Xcode → Settings → Apple Accounts → équipe → Manage Certificates → + → Developer ID Application** un certificat utilisable sur ce Mac. Un certificat **Apple Development** ou **Apple Distribution** ne convient pas. Voir les [instructions Apple](https://developer.apple.com/help/account/certificates/create-developer-id-certificates).
+
+Lister les identités avec `security find-identity -v -p codesigning`, puis reprendre le nom exact du certificat pour créer l'archive :
+
+```sh
+./release.command --archive "Developer ID Application: Nom (TEAMID)"
+```
+
+macOS peut demander le mot de passe du Trousseau « session » pour permettre la signature. C'est généralement le mot de passe de connexion au Mac. Il n'ajoute aucun mot de passe à l'application distribuée.
+
+Ouvrir le fichier `.xcarchive` indiqué dans Xcode. Dans **Window → Organizer → Archives**, sélectionner Nabaztag IA, puis **Distribute App → Direct Distribution → Distribute**. Attendre l'acceptation Apple, puis utiliser **Export Notarized App**. Cet export contient le ticket de notarisation attaché à l'app. Voir la [procédure Apple](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
+
+Créer ensuite le DMG à partir de cette app exportée, en adaptant son chemin :
+
+```sh
+./release.command --package "/chemin/export/Nabaztag IA.app"
+```
+
+Le script vérifie l'identité de l'app, sa version, les signatures, le hardened runtime, le ticket attaché et Gatekeeper avant de copier l'app intacte dans `dist/Nabaztag-IA-0.13-arm64.dmg`. Une erreur conserve un éventuel DMG final précédent. La version du nom de fichier suit automatiquement `Info.plist`.
+
+Dans cette procédure, **l'app est signée et notarisée ; le DMG est une enveloppe non signée**. Apple confirme que cette distribution convient aux macOS modernes lorsque le ticket est attaché à l'app ; aucun second envoi du DMG n'est nécessaire. Voir la [réponse Apple Developer Technical Support](https://developer.apple.com/forums/thread/741219). Ne pas modifier ni re-signer l'app après l'export notarisé.
+
+Après un essai d'installation, de connexion et de voix depuis ce DMG, créer une [Release GitHub](https://github.com/guidouil/nabaztag_IA/releases/new) avec un tag correspondant à la version (par exemple `v0.13`), joindre le **DMG contenant l'app notarisée**, préciser Apple Silicon/macOS 14 minimum et inclure le lien du guide d'installation. Enregistrer un brouillon pour vérifier les fichiers avant publication ; ne pas commiter les binaires, certificats ou clés.
+
+Avant une diffusion publique, clarifier les droits des services et contenus intégrés, notamment les [flux RSS du Monde](https://www.lemonde.fr/le-monde-et-vous/article/2025/07/14/les-flux-rss-du-monde-fr_5498778_3237.html) dont les conditions réservent l'usage à un cadre personnel, non professionnel et non collectif. La gratuité de l'app ne dispense pas de ces conditions.
