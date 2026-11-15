@@ -375,6 +375,26 @@ private struct ContentView: View {
             .buttonStyle(.borderedProminent).controlSize(.large)
             .disabled((model.busy || model.showingSettings) && model.recording == nil && model.radioSession == nil)
             HStack(spacing: 8) {
+                Image(systemName: "speaker.wave.2.fill").accessibilityHidden(true)
+                Slider(value: $model.volume, in: 0...100, step: 1, onEditingChanged: {
+                    if !$0 { model.setVolume() }
+                }) { Text("Volume du lapin") }
+                .disabled(!model.volumeAvailable || model.volumeUpdating || model.showingSettings)
+                Text(model.volumeAvailable ? "\(Int(model.volume)) %" : "—")
+                    .monospacedDigit().frame(width: 42, alignment: .trailing)
+                if model.volumeUpdating {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Button("Relire le volume", systemImage: "arrow.clockwise", action: model.refreshVolume)
+                        .labelStyle(.iconOnly).buttonStyle(.borderless)
+                        .disabled(model.showingSettings).help("Relire le volume du lapin")
+                }
+            }
+            if let error = model.volumeError {
+                Text("Volume indisponible : \(error)")
+                    .font(.caption).foregroundStyle(.red).textSelection(.enabled)
+            }
+            HStack(spacing: 8) {
                 Label(buttonWatcher.status, systemImage: "dot.radiowaves.left.and.right")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     .help(buttonWatcher.status)
@@ -523,14 +543,20 @@ private final class NabaztagModel: ObservableObject {
     @Published private(set) var recording: Bridge.RemoteSession?
     @Published var selectedRadio: RadioStation = .nova
     @Published private(set) var radioSession: Bridge.RemoteSession?
+    @Published var volume = 0.0
+    @Published private(set) var volumeAvailable = false
+    @Published private(set) var volumeUpdating = false
+    @Published private(set) var volumeError: String?
     let buttonWatcher = ButtonWatcher()
     private var operationTask: Task<Void, Never>?
+    private var volumeTask: Task<Void, Never>?
     private var thinkingForward = true
 
     init() {
         reconnectButton()
         if configuration.selectedVoiceEngine == .kokoro { LocalVoice.prewarm() }
         checkHealth()
+        refreshVolume()
     }
 
     func reconnectButton() {
@@ -539,6 +565,7 @@ private final class NabaztagModel: ObservableObject {
 
     func stop() {
         operationTask?.cancel()
+        volumeTask?.cancel()
         recording?.cancel()
         radioSession?.cancel()
         buttonWatcher.stop()
@@ -547,6 +574,7 @@ private final class NabaztagModel: ObservableObject {
     }
 
     func applyConfiguration(_ updated: AppConfiguration) {
+        let sshChanged = configuration.ssh != updated.ssh
         if configuration.provider != updated.provider
             || configuration.options(for: configuration.provider) != updated.options(for: updated.provider)
             || configuration.selectedRabbitName != updated.selectedRabbitName
@@ -561,6 +589,39 @@ private final class NabaztagModel: ObservableObject {
         healthReport = nil
         reconnectButton()
         checkHealth()
+        if sshChanged || !volumeAvailable { refreshVolume() }
+    }
+
+    func refreshVolume() {
+        volumeAvailable = false
+        updateVolume(nil)
+    }
+
+    func setVolume() {
+        guard volumeAvailable, !volumeUpdating else { return }
+        updateVolume(Int(volume.rounded()))
+    }
+
+    private func updateVolume(_ value: Int?) {
+        volumeTask?.cancel()
+        volumeUpdating = true
+        volumeError = nil
+        let configuration = configuration
+        volumeTask = Task {
+            defer {
+                if !Task.isCancelled { volumeUpdating = false; volumeTask = nil }
+            }
+            do {
+                let current = try await Bridge.volume(value, configuration: configuration)
+                try Task.checkCancellation()
+                volume = Double(current)
+                volumeAvailable = true
+            } catch {
+                guard !Task.isCancelled else { return }
+                volumeAvailable = false
+                volumeError = error.localizedDescription
+            }
+        }
     }
 
     func checkHealth() {
@@ -615,7 +676,7 @@ private final class NabaztagModel: ObservableObject {
         radioSession = session
         defer { radioSession = nil; session.cancel() }
         try await withTaskCancellationHandler(operation: {
-            try await session.start("radio \(station.rawValue)", waitForReady: true)
+            try await session.start(configuration.radioPlaybackAction(for: station), waitForReady: true)
             status = "En direct · \(station.title)"
             _ = try await session.result()
             status = "Prêt"
@@ -681,19 +742,22 @@ private final class NabaztagModel: ObservableObject {
             }
             return
         }
-        let answer: String
+        try Task.checkCancellation()
+        let receivedAnswer: @MainActor @Sendable (String) -> Void = { [self] answer in
+            history.append(ConversationEntry(question: question, answer: answer))
+            status = "Préparation de la voix et lecture sur le Nabaztag…"
+        }
         if let secret = easterEggAnswer(to: question) {
-            answer = secret
+            receivedAnswer(secret)
+            try await Bridge.speak(Bridge.spokenAnswer(secret))
         } else {
             status = "Réponse de l'agent IA…"
             let direction = thinkingForward ? "forward" : "backward"
             thinkingForward.toggle()
-            answer = try await Bridge.askWhileThinking(conversationPrompt(history: history, question: question, configuration: configuration), direction: direction)
+            try await Bridge.askAndSpeakWhileThinking(
+                conversationPrompt(history: history, question: question, configuration: configuration),
+                direction: direction, onAnswer: receivedAnswer)
         }
-        try Task.checkCancellation()
-        history.append(ConversationEntry(question: question, answer: answer))
-        status = "Préparation de la voix et lecture sur le Nabaztag…"
-        try await Bridge.speak(Bridge.spokenAnswer(answer))
         status = "Prêt"
     }
 }

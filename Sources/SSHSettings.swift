@@ -54,16 +54,21 @@ struct SSHSettings: Codable, Equatable {
         let fields = action.split(separator: " ", omittingEmptySubsequences: false)
         let isRecord = fields.count == 2 && fields[0] == "record" &&
             Int(fields[1]).map({ (1...15).contains($0) && String($0) == fields[1] }) == true
+        let isVolume = fields.count == 2 && fields[0] == "volume" &&
+            Int(fields[1]).map({ (0...100).contains($0) && String($0) == fields[1] }) == true
         let isThinking = fields.count == 2 && fields[0] == "think" &&
             ["forward", "backward"].contains(String(fields[1]))
-        let isRadio = fields.count == 2 && fields[0] == "radio" &&
+        let isRadio = (fields.count == 2 || fields.count == 3 && ["off", "on"].contains(String(fields[2]))) && fields[0] == "radio" &&
             ["nova", "franceinfo", "phenix"].contains(String(fields[1]))
-        let isConfiguredPlayback = fields.count == 4 && ["play-animated", "play-stream", "play-queue"].contains(String(fields[0])) &&
+        let isConfiguredPlayback = (fields.count == 4 || fields.count == 5 &&
+            ["play-stream", "play-queue"].contains(String(fields[0])) &&
+            ["forward", "backward"].contains(String(fields[4]))) &&
+            ["play-animated", "play-stream", "play-queue"].contains(String(fields[0])) &&
             ["off", "on", "small", "large"].contains(String(fields[1])) &&
             ["off", "fixed", "random"].contains(String(fields[2])) &&
             fields[3].utf8.count == 6 &&
             fields[3].range(of: "^[0-9A-Fa-f]{6}$", options: .regularExpression) != nil
-        guard ["diagnostic", "play", "play-animated", "watch-button", "record-until-stop"].contains(action) || isRecord || isThinking || isRadio || isConfiguredPlayback else {
+        guard ["diagnostic", "volume", "play", "play-animated", "watch-button", "record-until-stop"].contains(action) || isRecord || isVolume || isThinking || isRadio || isConfiguredPlayback else {
             throw Failure(message: "Commande SSH non autorisée.")
         }
         var arguments = ["-T", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8",

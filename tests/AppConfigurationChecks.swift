@@ -15,6 +15,7 @@ struct AppConfigurationChecks {
         assert(config.selectedEarMotion == .on && config.selectedLightMode == .fixed)
         assert(config.selectedLightColorHex == "002838")
         assert(config.playbackAction == "play-animated on fixed 002838")
+        assert(config.radioPlaybackAction(for: .nova) == "radio nova on")
         config.provider = .claude
         try config.validate()
         let oldAccount = config.apiSecretAccount(for: .claude)
@@ -60,6 +61,7 @@ struct AppConfigurationChecks {
         assert(voice.selectedVoiceEngine == .macOS)
         assert(!voice.animationsEnabled)
         assert(voice.playbackAction == "play")
+        assert(voice.radioPlaybackAction(for: .nova) == "radio nova off")
         var legacy = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
         legacy.removeValue(forKey: "voiceEngine")
         legacy.removeValue(forKey: "animateResponses")
@@ -131,6 +133,9 @@ struct AppConfigurationChecks {
                 let expected = enabled ? "play-animated \(ears.rawValue) \(lights.rawValue) A1B2C3" : "play"
                 assert(config.playbackAction == expected)
                 assert(config.streamPlaybackAction == "play-queue \(ears.rawValue) \(lights.rawValue) A1B2C3")
+                for station in RadioStation.allCases {
+                    assert(config.radioPlaybackAction(for: station) == "radio \(station.rawValue) \(ears.rawValue)")
+                }
                 let roundTrip = try JSONDecoder().decode(AppConfiguration.self, from: JSONEncoder().encode(config))
                 assert(roundTrip.selectedEarMotion == ears && roundTrip.selectedLightMode == lights)
                 assert(roundTrip.selectedLightColorHex == "A1B2C3" && roundTrip.playbackAction == expected)

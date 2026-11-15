@@ -1,8 +1,120 @@
 import Foundation
 import Speech
+import Darwin
+
+private actor ReplyConnectionTrace {
+    private(set) var events: [String] = []
+    func record(_ value: String) { events.append(value) }
+    func waitFor(_ value: String) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + 2
+        while !events.contains(value) {
+            guard ProcessInfo.processInfo.systemUptime < deadline else {
+                throw Bridge.Failure(message: "La connexion et l’IA doivent démarrer en parallèle.")
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+    }
+}
 
 @main
 struct BridgeChecks {
+    static func checkConcurrentReply() async throws {
+        let trace = ReplyConnectionTrace()
+        let response = try await Bridge.answerWhileConnecting(connect: {
+            await trace.record("connect")
+            try await trace.waitFor("answer")
+            await trace.record("ready")
+        }, answer: {
+            await trace.record("answer")
+            try await trace.waitFor("connect")
+            return "La réponse complète."
+        })
+        await trace.record("returned")
+        let events = await trace.events
+        assert(response == "La réponse complète.")
+        assert(events.firstIndex(of: "answer")! < events.firstIndex(of: "ready")!)
+        assert(events.firstIndex(of: "ready")! < events.firstIndex(of: "returned")!)
+
+        for failingConnection in [true, false] {
+            let trace = ReplyConnectionTrace()
+            do {
+                _ = try await Bridge.answerWhileConnecting(connect: {
+                    await trace.record("connect")
+                    do {
+                        try await trace.waitFor("answer")
+                        if failingConnection { throw Bridge.Failure(message: "fixture failure") }
+                        try await Task.sleep(nanoseconds: 10_000_000_000)
+                    } catch {
+                        if error is CancellationError { await trace.record("connect canceled") }
+                        throw error
+                    }
+                }, answer: {
+                    await trace.record("answer")
+                    do {
+                        try await trace.waitFor("connect")
+                        if !failingConnection { throw Bridge.Failure(message: "fixture failure") }
+                        try await Task.sleep(nanoseconds: 10_000_000_000)
+                    } catch {
+                        if error is CancellationError { await trace.record("answer canceled") }
+                        throw error
+                    }
+                    return "Unreachable"
+                })
+                assertionFailure("Une panne doit annuler l’autre opération.")
+            } catch { assert(error.localizedDescription == "fixture failure") }
+            let events = await trace.events
+            assert(events.contains(failingConnection ? "answer canceled" : "connect canceled"))
+        }
+    }
+
+    static func checkProcessCancellation() async throws {
+        let folder = try Bridge.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let executable = folder.appendingPathComponent("slow-answer")
+        let pidFile = folder.appendingPathComponent("pid")
+        let script = #"""
+        #!/bin/sh
+        set -eu
+        if [ "${1:-}" = ignore-term ]; then trap '' TERM; fi
+        printf '%s' "$$" > "${0%/*}/pid"
+        exec /bin/sleep 3
+        """#
+        try Data(script.utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let waitForPID: @Sendable () async throws -> Int32 = {
+            for _ in 0..<200 {
+                if let text = try? String(contentsOf: pidFile, encoding: .utf8), let pid = Int32(text) { return pid }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            throw Bridge.Failure(message: "Le processus de test n’a pas démarré.")
+        }
+        let started = ProcessInfo.processInfo.systemUptime
+        do {
+            _ = try await Bridge.answerWhileConnecting(connect: {
+                _ = try await waitForPID()
+                try await Task.sleep(nanoseconds: 50_000_000)
+                throw Bridge.Failure(message: "connection fixture failure")
+            }, answer: {
+                _ = try await Bridge.run(executable.path, [])
+                return "Unused answer"
+            })
+            assertionFailure("Une panne de connexion doit annuler le processus de réponse.")
+        } catch { assert(error.localizedDescription == "connection fixture failure") }
+        let answerPID = Int32(try String(contentsOf: pidFile, encoding: .utf8))!
+        assert(kill(answerPID, 0) != 0, "Le processus de réponse annulé doit être récolté.")
+        assert(ProcessInfo.processInfo.systemUptime - started < 1.5, "Une panne SSH ne doit pas attendre la fin du fournisseur IA.")
+
+        try FileManager.default.removeItem(at: pidFile)
+        let stubborn = Task { try await Bridge.run(executable.path, ["ignore-term"]) }
+        let stubbornPID = try await waitForPID()
+        let canceledAt = ProcessInfo.processInfo.systemUptime
+        stubborn.cancel()
+        do { _ = try await stubborn.value; assertionFailure("L’annulation doit arrêter un processus ignorant SIGTERM.") }
+        catch { assert(error is CancellationError) }
+        assert(kill(stubbornPID, 0) != 0, "Le processus tué doit être récolté.")
+        assert(ProcessInfo.processInfo.systemUptime - canceledAt < 2, "SIGKILL doit terminer rapidement un processus ignorant SIGTERM.")
+    }
+
     static func checkProviderHealth() async {
         var configuration = AppConfiguration()
         configuration.provider = .claude
@@ -107,6 +219,59 @@ struct BridgeChecks {
             do { _ = try Bridge.serviceQuery(text); assertionFailure("Une commande de service invalide ne doit pas être lue à voix haute.") }
             catch {}
         }
+    }
+
+    static func checkVolume() async throws {
+        let folder = try Bridge.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let executable = folder.appendingPathComponent("fake-ssh")
+        let script = #"""
+        #!/bin/sh
+        set -eu
+        fixture=${0%/*}
+        printf '%s\0' "$@" > "$fixture/arguments"
+        /bin/cat "$fixture/output"
+        exit "$(/bin/cat "$fixture/code")"
+        """#
+        try Data(script.utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let key = folder.appendingPathComponent("key")
+        try Data("fixture".utf8).write(to: key)
+        var configuration = AppConfiguration()
+        configuration.ssh.host = "fixture.local"
+        configuration.ssh.keyPath = key.path
+        try Data("0".utf8).write(to: folder.appendingPathComponent("code"))
+        for invalid in [-1, 101] {
+            do {
+                _ = try await Bridge.volume(invalid, configuration: configuration, executable: executable.path)
+                assertionFailure("Un volume hors limites doit être refusé avant SSH.")
+            } catch { assert(error.localizedDescription.contains("0 et 100")) }
+        }
+        assert(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("arguments").path))
+        for requested in [nil, 0, 25, 100] as [Int?] {
+            let expected = requested ?? 37
+            try Data("{\"volume\":\(expected)}\n".utf8).write(to: folder.appendingPathComponent("output"))
+            let result = try await Bridge.volume(requested, configuration: configuration, executable: executable.path)
+            assert(result == expected)
+            let arguments = try Data(contentsOf: folder.appendingPathComponent("arguments"))
+                .split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
+            let action = requested.map { "volume \($0)" } ?? "volume"
+            let expectedArguments = try configuration.ssh.arguments(for: action)
+            assert(arguments == expectedArguments)
+        }
+        for invalid in ["", "not JSON", "[]", "{}", "{\"volume\":-1}", "{\"volume\":101}",
+                        "{\"volume\":true}", "{\"volume\":null}", "{\"volume\":\"50\"}", "{\"volume\":50.5}"] {
+            try Data(invalid.utf8).write(to: folder.appendingPathComponent("output"))
+            do {
+                _ = try await Bridge.volume(configuration: configuration, executable: executable.path)
+                assertionFailure("Une réponse de volume invalide doit échouer.")
+            } catch { assert(error.localizedDescription.contains("volume du lapin invalide")) }
+        }
+        try Data("1".utf8).write(to: folder.appendingPathComponent("code"))
+        do {
+            _ = try await Bridge.volume(configuration: configuration, executable: executable.path)
+            assertionFailure("Une erreur SSH du volume doit être propagée.")
+        } catch let failure as Bridge.ProcessFailure { assert(failure.exitCode == 1) }
     }
 
     static func checkRemoteSessions() async throws {
@@ -328,6 +493,9 @@ struct BridgeChecks {
             checkSpokenAnswer()
             try await checkCodex()
             try checkServiceRouting()
+            try await checkConcurrentReply()
+            try await checkProcessCancellation()
+            try await checkVolume()
             try await checkRemoteSessions()
             let text = Data("Texte français — `$(echo test)`\n".utf8)
             let result = try await Bridge.run("/bin/cat", [], input: text)

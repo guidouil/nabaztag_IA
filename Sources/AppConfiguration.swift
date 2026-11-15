@@ -74,6 +74,10 @@ struct AppConfiguration: Codable {
         "play-queue \(selectedEarMotion.rawValue) \(selectedLightMode.rawValue) \(selectedLightColorHex)"
     }
 
+    func radioPlaybackAction(for station: RadioStation) -> String {
+        "radio \(station.rawValue) \(selectedEarMotion.rawValue)"
+    }
+
     func options(for provider: AIProvider) -> ProviderConfiguration {
         providers[provider.rawValue] ?? ProviderConfiguration(model: provider.defaultModel, baseURL: provider.defaultBaseURL)
     }

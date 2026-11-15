@@ -32,6 +32,7 @@
 		B30000000000000000000006 /* requirements-local-voice.txt in Resources */ = {isa = PBXBuildFile; fileRef = F30000000000000000000006 /* requirements-local-voice.txt */; };
 		B30000000000000000000007 /* MenuBarIcon.png in Resources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000002 /* MenuBarIcon.png */; };
 		B30000000000000000000008 /* setup-radio.command in Resources */ = {isa = PBXBuildFile; fileRef = F30000000000000000000009 /* setup-radio.command */; };
+		B30000000000000000000009 /* alsa.conf in Resources */ = {isa = PBXBuildFile; fileRef = F3000000000000000000000A /* alsa.conf */; };
 		B50000000000000000000001 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F50000000000000000000001 /* SwiftUI.framework */; };
 		B50000000000000000000002 /* Speech.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F50000000000000000000002 /* Speech.framework */; };
 		B50000000000000000000003 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F50000000000000000000003 /* Security.framework */; };
@@ -90,6 +91,7 @@
 		F30000000000000000000007 /* build.command */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = build.command; sourceTree = "<group>"; };
 		F30000000000000000000008 /* test.command */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = test.command; sourceTree = "<group>"; };
 		F30000000000000000000009 /* setup-radio.command */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "setup-radio.command"; sourceTree = "<group>"; };
+		F3000000000000000000000A /* alsa.conf */ = {isa = PBXFileReference; lastKnownFileType = text; path = alsa.conf; sourceTree = "<group>"; };
 		F40000000000000000000001 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		F40000000000000000000002 /* MenuBarIcon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = MenuBarIcon.png; sourceTree = "<group>"; };
 		F50000000000000000000001 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -145,6 +147,7 @@
 				A30000000000000000000007 /* tests */,
 				F30000000000000000000002 /* Info.plist */,
 				F30000000000000000000001 /* bridge_remote.py */,
+				F3000000000000000000000A /* alsa.conf */,
 				F30000000000000000000005 /* setup-voice.command */,
 				F30000000000000000000009 /* setup-radio.command */,
 				F30000000000000000000006 /* requirements-local-voice.txt */,
@@ -329,6 +332,7 @@
 				B30000000000000000000006 /* requirements-local-voice.txt in Resources */,
 				B30000000000000000000007 /* MenuBarIcon.png in Resources */,
 				B30000000000000000000008 /* setup-radio.command in Resources */,
+				B30000000000000000000009 /* alsa.conf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

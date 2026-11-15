@@ -7,6 +7,7 @@ final class StreamPlayback: @unchecked Sendable {
     private static weak var active: StreamPlayback?
 
     private let configuration: AppConfiguration
+    private let thinkingDirection: String?
     private let executable: String
     private let readyTimeout: Double
     private let writeTimeout: Double
@@ -22,8 +23,9 @@ final class StreamPlayback: @unchecked Sendable {
     private var writingFinished = false
     private var bytes = 0
 
-    init(configuration: AppConfiguration, executable: String = "/usr/bin/ssh", readyTimeout: Double = 15, writeTimeout: Double = 120) {
+    init(configuration: AppConfiguration, thinkingDirection: String? = nil, executable: String = "/usr/bin/ssh", readyTimeout: Double = 15, writeTimeout: Double = 120) {
         self.configuration = configuration
+        self.thinkingDirection = thinkingDirection
         self.executable = executable
         self.readyTimeout = readyTimeout
         self.writeTimeout = writeTimeout
@@ -40,13 +42,20 @@ final class StreamPlayback: @unchecked Sendable {
     }
 
     func start() async throws {
-        try await Task.detached(priority: .userInitiated) { try self.startSync() }.value
+        try Task.checkCancellation()
+        try await withTaskCancellationHandler(operation: {
+            try await Task.detached(priority: .userInitiated) { try self.startSync() }.value
+        }, onCancel: { self.cancel() })
     }
 
     private func startSync() throws {
+        if let direction = thinkingDirection, !["forward", "backward"].contains(direction) {
+            throw Bridge.Failure(message: "Sens de réflexion invalide.")
+        }
         let child = Process(), stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         child.executableURL = URL(fileURLWithPath: executable)
-        child.arguments = try configuration.ssh.arguments(for: configuration.streamPlaybackAction)
+        let action = configuration.streamPlaybackAction + (thinkingDirection.map { " \($0)" } ?? "")
+        child.arguments = try configuration.ssh.arguments(for: action)
         child.environment = try configuration.ssh.environment()
         child.standardInput = stdin
         child.standardOutput = stdout
@@ -183,7 +192,7 @@ final class StreamPlayback: @unchecked Sendable {
             throw Bridge.Failure(message: "Aucun audio à terminer ou lecture interrompue.")
         }
         writingFinished = true
-        let timeout = Double(bytes) / 48000 + 15
+        let timeout = Double(bytes) / 48000 + 20
         lock.unlock()
         do {
             try stdin.fileHandleForWriting.close()

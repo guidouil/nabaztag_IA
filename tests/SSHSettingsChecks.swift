@@ -42,12 +42,41 @@ struct SSHSettingsChecks {
         for action in ["record-until-stop", "think forward", "think backward", "radio nova", "radio franceinfo", "radio phenix"] {
             _ = try settings.arguments(for: action)
         }
+        for station in RadioStation.allCases {
+            for ears in ["off", "on"] {
+                let action = "radio \(station.rawValue) \(ears)"
+                let arguments = try settings.arguments(for: action)
+                assert(arguments.last == "/usr/bin/python3 /usr/local/lib/nabaztag-mac/bridge_remote.py \(action)")
+            }
+        }
+        for action in ["radio nova small", "radio nova off extra", "radio nova  on", "radio nova on\n", "radio nova on; id"] {
+            expectFailure { _ = try settings.arguments(for: action) }
+        }
+        for action in ["volume", "volume 0", "volume 1", "volume 50", "volume 100"] {
+            let arguments = try settings.arguments(for: action)
+            assert(arguments.last == "/usr/bin/python3 /usr/local/lib/nabaztag-mac/bridge_remote.py \(action)")
+        }
+        for action in ["volume -1", "volume 101", "volume 01", "volume +1", "volume 1.0", "volume ５０", "volume  1", "volume 1\n", "volume 1 extra", "volume 1; id", "volume $(id)"] {
+            expectFailure { _ = try settings.arguments(for: action) }
+        }
         for action in ["radio", "radio fip", "radio https://example.com/live.mp3", "radio nova extra", "radio  nova", "radio nova\n", "radio nova; id", "radio $(id)", "record-until-stop 6", "record-until-stop; id", "think", "think left", "think forward extra", "think  forward", "think forward\n", "think forward; id", "think $(id)"] {
             expectFailure { _ = try settings.arguments(for: action) }
         }
         for action in ["play-stream off off 002838", "play-stream on fixed ABCDEF", "play-stream small fixed ABCDEF", "play-stream large random FF00AA"] {
             _ = try settings.arguments(for: action)
             _ = try settings.arguments(for: action.replacingOccurrences(of: "play-stream", with: "play-queue"))
+            for command in [action, action.replacingOccurrences(of: "play-stream", with: "play-queue")] {
+                for direction in ["forward", "backward"] {
+                    let configured = "\(command) \(direction)"
+                    let arguments = try settings.arguments(for: configured)
+                    assert(arguments.last == "/usr/bin/python3 /usr/local/lib/nabaztag-mac/bridge_remote.py \(configured)")
+                }
+            }
+        }
+        for action in ["play-animated on fixed 002838 forward", "play-stream on fixed 002838 sideways",
+                       "play-queue on fixed 002838 forward extra", "play-queue on fixed 002838  forward",
+                       "play-queue on fixed 002838 forward\n", "play-queue on fixed 002838 forward; id"] {
+            expectFailure { _ = try settings.arguments(for: action) }
         }
         for action in ["", "sh", "play; id", "play-animated; id", "play-animated extra", "play-animated huge fixed 002838", "play-animated small unknown 002838", "play-animated small fixed 000000;id", "play-animated small fixed $(id)", "play-animated small fixed 12345", "play-animated small fixed 000000 extra", "record", "record 0", "record 16", "record 01", "record +1", "record 1\n", "record  1", "record $(id)", "record 1;id"] {
             expectFailure { _ = try settings.arguments(for: action) }

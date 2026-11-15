@@ -30,7 +30,7 @@ Dans Terminal sur le Mac, exécuter cette commande en remplaçant **pi@MON-LAPIN
 /bin/zsh "/Applications/Nabaztag IA.app/Contents/Resources/setup-radio.command" "pi@MON-LAPIN.local"
 ```
 
-Malgré son nom, ce script installe le relais complet pour la voix, le bouton et la radio. Utiliser son accès SSH habituel avec les droits d'administration du lapin. Le script sauvegarde un relais existant avant son premier remplacement et ajoute `curl` et `mpg123` si nécessaire. Il exige un accès `sudo -n` sur le lapin ; si celui-ci est refusé, faire installer le relais par l'administrateur du lapin.
+Malgré son nom, ce script installe le relais complet pour la voix, le bouton, la radio et le volume. Il installe aussi la configuration ALSA dédiée, initialise le contrôle silencieusement et sauvegarde son état. Utiliser son accès SSH habituel avec les droits d'administration du lapin. Le script sauvegarde un relais existant avant son premier remplacement et ajoute `curl` et `mpg123` si nécessaire. Il exige un accès `sudo -n` sur le lapin ; si celui-ci est refusé, faire installer le relais par l'administrateur du lapin.
 
 Pynab, Python 3, `arecord`, `aplay` et la carte audio `tagtagtagsound` doivent déjà fonctionner sur le lapin. Le script n'installe pas ces prérequis. Ne pas lancer le script sans indiquer sa propre cible SSH.
 
@@ -44,6 +44,6 @@ L'application est gratuite ; les services IA choisis peuvent être payants. Les 
 
 ## Vérifier le fonctionnement
 
-Cliquer sur **Vérifier**, puis **Diagnostic → Tester la voix**. Essayer une question saisie dans **Conversation**, puis **Parler au lapin**. Accepter la demande macOS de reconnaissance vocale et attendre le bip avant de parler. Un second clic court sur le bouton du lapin arrête l'enregistrement.
+Cliquer sur **Vérifier**, puis **Diagnostic → Tester la voix**. Essayer une question saisie dans **Conversation**, puis **Parler au lapin**. Accepter la demande macOS de reconnaissance vocale et attendre le signal sonore natif avant de parler. Le curseur **Volume du lapin** reste utilisable pendant la lecture ; à 0 %, le signal d'écoute est également coupé. Un second clic court sur le bouton du lapin arrête l'enregistrement.
 
 Pour signaler un problème, utiliser les [issues GitHub](https://github.com/guidouil/nabaztag_IA/issues) avec la version de l'app, de macOS et le message d'erreur. Retirer les mots de passe, clés API et informations personnelles des diagnostics partagés.

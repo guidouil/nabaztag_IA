@@ -80,8 +80,9 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
 """
 
             def popen(arguments, **kwargs):
-                self.assertEqual(arguments, ["aplay", "-q", "-D", bridge.DEVICE, "-t", "raw", "-f",
+                self.assertEqual(arguments, ["aplay", "-q", "-D", bridge.PLAYBACK_DEVICE, "-t", "raw", "-f",
                                              "S16_LE", "-r", "24000", "-c", "1"])
+                self.assertEqual(kwargs["env"], bridge.playback_environment())
                 player = real_popen([sys.executable, "-c", script, str(marker),
                                      "fail" if early_failure else "stall" if stalled else "ok"], **kwargs)
                 players.append(player)
@@ -110,6 +111,9 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
 
     def test_command_allowlist(self):
         self.assertEqual(bridge.parse_action("diagnostic"), ("diagnostic", None))
+        self.assertEqual(bridge.parse_action("volume"), ("volume", None))
+        for value in (0, 1, 50, 100):
+            self.assertEqual(bridge.parse_action("volume " + str(value)), ("volume", value))
         self.assertEqual(bridge.parse_action("play"), ("play", None))
         self.assertEqual(bridge.parse_action("play-animated"), ("play-animated", None))
         self.assertEqual(bridge.parse_action("watch-button"), ("watch-button", None))
@@ -118,14 +122,19 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
         self.assertEqual(bridge.parse_action("think forward"), ("think", "forward"))
         self.assertEqual(bridge.parse_action("think backward"), ("think", "backward"))
         for station in ("nova", "franceinfo", "phenix"):
-            self.assertEqual(bridge.parse_action("radio " + station), ("radio", station))
+            self.assertEqual(bridge.parse_action("radio " + station), ("radio", (station, "on")))
+            for ears in ("off", "on"):
+                self.assertEqual(bridge.parse_action("radio " + station + " " + ears), ("radio", (station, ears)))
         for command in ("", "sh", "diagnostic extra", "record", "record 0", "record 16",
                         "record 1; reboot", "play; reboot", "record $(id)", "record '1",
                         "watch-button extra", "watch-button; reboot", "play-animated extra", "play-animated; reboot",
                         "record-until-stop 90", "record-until-stop; reboot", "think", "think sideways",
                         "think forward extra", "think forward; reboot", "think $(id)",
                         "radio", "radio unknown", "radio https://example.com", "radio nova extra",
-                        "radio nova; reboot", "radio $(id)"):
+                        "radio nova; reboot", "radio $(id)", "radio nova small", "radio nova on extra",
+                        "volume -1", "volume 101", "volume 01", "volume +1", "volume 1.0", "volume ５０",
+                        "volume  1", "volume 1\n", "volume\n", "volume 1 extra", "volume 1; id", "volume $(id)",
+                        "volume '1'", " volume 1"):
             with self.subTest(command=command), self.assertRaises(ValueError):
                 bridge.parse_action(command)
 
@@ -139,6 +148,10 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                                  ("play-stream", options))
                 self.assertEqual(bridge.parse_action(command.replace("play-animated", "play-queue")),
                                  ("play-queue", options))
+                for action in ("play-stream", "play-queue"):
+                    for direction in ("forward", "backward"):
+                        self.assertEqual(bridge.parse_action(action + " " + " ".join(options) + " " + direction),
+                                         (action, options + (direction,)))
                 self.assertEqual(bridge.parse_action(
                     "/usr/bin/python3 /usr/local/lib/nabaztag-mac/bridge_remote.py " + command),
                     ("play-animated", options))
@@ -159,6 +172,9 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                 bridge.parse_action(command.replace("play-animated", "play-queue"))
         self.assertRaises(ValueError, bridge.parse_action, "play-stream")
         self.assertRaises(ValueError, bridge.parse_action, "play-queue")
+        for command in ("play-queue on off 002838 sideways", "play-stream on off 002838 forward extra",
+                        "play-animated on off 002838 forward"):
+            self.assertRaises(ValueError, bridge.parse_action, command)
 
     def test_main_routes_stream_without_reading_whole_input(self):
         source = mock.Mock()
@@ -166,19 +182,34 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
              mock.patch.object(bridge.sys, "stdin", mock.Mock(buffer=source)), \
              mock.patch.object(bridge, "stream_play") as stream:
             self.assertEqual(bridge.main(), 0)
-        stream.assert_called_once_with(source, options=("large", "random", "123456"))
+        stream.assert_called_once_with(source, options=("large", "random", "123456"), thinking=None)
         source.read.assert_not_called()
 
         with mock.patch.dict(bridge.os.environ, {"SSH_ORIGINAL_COMMAND": "play-queue large random 123456"}, clear=True), \
              mock.patch.object(bridge.sys, "stdin", mock.Mock(buffer=source)), \
              mock.patch.object(bridge, "stream_play") as stream:
             self.assertEqual(bridge.main(), 0)
-        stream.assert_called_once_with(source, options=("large", "random", "123456"), queued=True)
+        stream.assert_called_once_with(source, options=("large", "random", "123456"), queued=True, thinking=None)
         source.read.assert_not_called()
+
+    def test_main_routes_single_session_thinking_and_radio_options(self):
+        for action in ("play-stream", "play-queue"):
+            source = mock.Mock()
+            with mock.patch.dict(bridge.os.environ, {"SSH_ORIGINAL_COMMAND": action + " on fixed 002838 backward"}, clear=True), \
+                 mock.patch.object(bridge.sys, "stdin", mock.Mock(buffer=source)), \
+                 mock.patch.object(bridge, "stream_play") as stream:
+                self.assertEqual(bridge.main(), 0)
+            self.assertEqual(stream.call_args.kwargs["thinking"], "backward")
+            self.assertEqual(stream.call_args.kwargs["options"], ("on", "fixed", "002838"))
+        for command, ears in (("radio nova", "on"), ("radio nova off", "off")):
+            with mock.patch.dict(bridge.os.environ, {"SSH_ORIGINAL_COMMAND": command}, clear=True), \
+                 mock.patch.object(bridge, "radio") as radio:
+                self.assertEqual(bridge.main(), 0)
+            radio.assert_called_once_with("nova", ears)
 
     def test_exact_remote_prefix_is_allowed(self):
         prefix = "/usr/bin/python3 /usr/local/lib/nabaztag-mac/bridge_remote.py "
-        for command in ("diagnostic", "play", "play-animated", "play-stream small fixed 002838", "play-queue small fixed 002838", "watch-button", "record 6", "record-until-stop", "think forward", "think backward"):
+        for command in ("diagnostic", "volume", "volume 0", "volume 100", "play", "play-animated", "play-stream small fixed 002838", "play-queue small fixed 002838", "watch-button", "record 6", "record-until-stop", "think forward", "think backward"):
             with self.subTest(command=command):
                 self.assertEqual(bridge.parse_action(prefix + command), bridge.parse_action(command))
         for command in (
@@ -294,6 +325,65 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
             with self.assertRaisesRegex(ValueError, "Device busy"):
                 bridge.run_audio(["arecord"], timeout=5)
 
+    def test_playback_environment_is_scoped_to_output_and_preserves_environment(self):
+        result = mock.Mock(returncode=0)
+        with mock.patch.dict(bridge.os.environ, {"ALSA_CONFIG_PATH": "/untrusted", "NABAZTAG_FIXTURE": "kept"}), \
+             mock.patch.object(bridge.subprocess, "run", return_value=result) as run:
+            bridge.run_audio(["aplay", "-D", bridge.PLAYBACK_DEVICE, "fixture.wav"], timeout=5)
+        environment = run.call_args.kwargs["env"]
+        self.assertEqual(environment["ALSA_CONFIG_PATH"], str(Path(bridge.__file__).with_name("alsa.conf")))
+        self.assertEqual(environment["NABAZTAG_FIXTURE"], "kept")
+
+    def test_volume_reads_and_sets_both_channels_without_reserving_audio(self):
+        output = """numid=42,iface=MIXER,name='Nabaztag IA'
+  ; type=INTEGER,access=rw---R--,values=2,min=0,max=100,step=0
+  : values=25,25
+  | dBscale-min=-42.00dB,step=0.42dB,mute=1
+"""
+        with mock.patch.object(bridge, "reserve", side_effect=AssertionError("Do not interrupt playback")), \
+             mock.patch.object(bridge.subprocess, "run") as run:
+            for value in (None, 0, 25, 100):
+                expected = 25 if value is None else value
+                run.return_value = mock.Mock(returncode=0, stdout=output.replace("25,25", "{0},{0}".format(expected)))
+                self.assertEqual(bridge.volume(value), expected)
+                command = ["amixer", "-c", "tagtagtagsound", "cget" if value is None else "cset", "name=Nabaztag IA"]
+                if value is not None:
+                    command.append("{0},{0}".format(value))
+                self.assertEqual(run.call_args.args[0], command)
+                self.assertEqual(run.call_args.kwargs["timeout"], 5)
+                self.assertEqual(run.call_args.kwargs["env"], dict(bridge.os.environ, LC_ALL="C"))
+            for invalid in (-1, 101, True, 1.5, "25"):
+                run.reset_mock()
+                with self.assertRaises(ValueError):
+                    bridge.volume(invalid)
+                run.assert_not_called()
+            for invalid in ("", output.replace("values=2", "values=1"), output.replace("min=0", "min=1"),
+                            output.replace("max=100", "max=255"), output.replace("INTEGER", "BOOLEAN"),
+                            output.replace("25,25", "25,26"), output.replace("25,25", "101,101"),
+                            output.replace("25,25", "-1,-1"), output.replace("25,25", "25"),
+                            output.replace("25,25", "25.0,25.0"), output.replace("25,25", "025,025")):
+                run.return_value = mock.Mock(returncode=0, stdout=invalid)
+                with self.subTest(output=invalid), self.assertRaises(ValueError):
+                    bridge.volume()
+            run.return_value = mock.Mock(returncode=1, stderr="Cannot find the given element")
+            with self.assertRaisesRegex(ValueError, "setup-radio.command"):
+                bridge.volume()
+            run.side_effect = bridge.subprocess.TimeoutExpired("amixer", 5)
+            with self.assertRaises(bridge.subprocess.TimeoutExpired):
+                bridge.volume()
+
+    def test_main_volume_returns_json_without_reading_audio(self):
+        for command, argument in (("volume", None), ("volume 12", 12)):
+            source, output = mock.Mock(), io.StringIO()
+            with mock.patch.dict(bridge.os.environ, {"SSH_ORIGINAL_COMMAND": command}, clear=True), \
+                 mock.patch.object(bridge, "volume", return_value=12) as volume, \
+                 mock.patch.object(bridge.sys, "stdin", source), \
+                 mock.patch.object(bridge.sys, "stdout", output):
+                self.assertEqual(bridge.main(), 0)
+            self.assertEqual(json.loads(output.getvalue()), {"volume": 12})
+            volume.assert_called_once_with(argument)
+            source.buffer.read.assert_not_called()
+
     def test_response_choreography_is_finite_and_keeps_effects_independent(self):
         for duration in (0.01, 6, 37, 90):
             for ears in ("off", "on", "small", "large"):
@@ -323,6 +413,10 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                                 self.assertIn(position, (0, 5, 10, 14))
                                 self.assertEqual(direction, 0)
                                 ear_events.append((timestamp, operands))
+                            elif opcode in (17, 20, 19):
+                                self.assertNotEqual(ears, "off")
+                                if opcode == 17:
+                                    self.assertEqual(operands[1], 17)
                             else:
                                 self.assertIn(opcode, (0, 1))
                         if ears == "off":
@@ -332,11 +426,22 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                             self.assertEqual([time for time, _ in initial], [0, 0])
                             self.assertEqual([values[0] for _, values in initial], [0, 1])
                             self.assertIn(tuple(values[1] for _, values in initial), ((0, 10), (10, 0)))
-                            self.assertTrue(all(time >= 21.6 for time, _ in ear_events[2:]))
+                            self.assertTrue(all(time >= 3 for time, _ in ear_events[2:]))
                         self.assertEqual(bool(led_events), lights != "off")
                         self.assertAlmostEqual(elapsed, motion_duration)
                         self.assertGreaterEqual(motion_duration, duration)
                         self.assertLessEqual(motion_duration, 90)
+
+    def test_lights_start_with_motion_before_waiting_for_motors(self):
+        for lights in ("fixed", "random"):
+            for movements in (0, 2):
+                with self.subTest(lights=lights, movements=movements):
+                    resource, _ = bridge.response_choreography(1.2, ("on", lights, "002838"),
+                                                                {"movements": movements})
+                    events, _ = decoded_choreography(resource)
+                    initial = [opcode for timestamp, opcode, _ in events if timestamp == 0]
+                    motors = [8, 8] if movements == 0 else [20, 17, 20, 17]
+                    self.assertEqual(initial, [1] + motors + [7, 7, 7, 19])
 
     def test_legacy_ear_modes_are_aliases_of_native_motion(self):
         for ears in ("on", "small", "large"):
@@ -345,40 +450,32 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                 self.assertEqual(bridge.response_choreography(6),
                                  bridge.response_choreography(6, (ears, "fixed", "002838")))
 
-    def test_native_ear_timing_probability_and_positions_survive_stream_cycles(self):
-        state, ear_events = {}, []
-        # Minimum native interval: 45 ticks * 160 ms * 3 loops = 21.6 seconds.
-        choices = [(10, 0), 45, 5, 14, 45, 45, 0, 10, 45, 14, 5, 45]
-        draws = [160, 3, 0, 160, 3, 1, 160, 3, 0, 160, 3, 0, 160, 3]
-        with mock.patch.object(bridge.random, "choice", side_effect=choices), \
-             mock.patch.object(bridge.random, "randint", side_effect=draws) as randint:
-            for cycle in range(75):
+    def test_ear_pauses_and_full_turns_survive_stream_cycles(self):
+        state, events = {}, []
+        with mock.patch.object(bridge.random, "choice", side_effect=lambda values: values[0]), \
+             mock.patch.object(bridge.random, "randint", return_value=300) as randint:
+            for cycle in range(20):
                 resource, duration = bridge.response_choreography(1.2, ("on", "off", "002838"), state)
-                events, _ = decoded_choreography(resource)
-                ear_events.extend((round(cycle * 1.2 + timestamp, 2), values)
-                                  for timestamp, opcode, values in events if opcode == 8)
+                cycle_events, _ = decoded_choreography(resource)
+                events.extend((round(cycle * 1.2 + timestamp, 2), opcode, values)
+                              for timestamp, opcode, values in cycle_events if opcode in (8, 17, 19, 20))
                 self.assertEqual(duration, 1.2)
-        self.assertEqual(ear_events, [
-            (0, (0, 10, 0)), (0, (1, 0, 0)),
-            (21.6, (0, 5, 0)), (21.6, (1, 14, 0)),
-            (64.8, (0, 0, 0)), (64.8, (1, 10, 0)),
-            (86.4, (0, 14, 0)), (86.4, (1, 5, 0)),
-        ])
-        self.assertEqual(randint.call_args_list, [
-            mock.call(160, 250), mock.call(3, 20),
-            mock.call(0, 0), mock.call(160, 250), mock.call(3, 20),
-            mock.call(0, 1), mock.call(160, 250), mock.call(3, 20),
-            mock.call(0, 1), mock.call(160, 250), mock.call(3, 20),
-            mock.call(0, 2), mock.call(160, 250), mock.call(3, 20),
-        ])
+        self.assertEqual([timestamp for timestamp, opcode, _ in events if opcode == 19],
+                         [0, 3, 6, 9, 12, 15, 18, 21])
+        self.assertEqual([(timestamp, values) for timestamp, opcode, values in events if opcode == 17],
+                         [(6, (0, 17)), (6, (1, 17)), (15, (0, 17)), (15, (1, 17))])
+        self.assertEqual([values for _, opcode, values in events if opcode == 20],
+                         [(0, 0), (1, 1), (0, 1), (1, 0)])
+        positions = [(events[index][2][1], events[index + 1][2][1])
+                     for index in range(len(events) - 1) if events[index][1] == 8 and events[index][2][0] == 0]
+        self.assertTrue(all(before != after for before, after in zip(positions, positions[1:])))
+        self.assertEqual(randint.call_args_list, [mock.call(300, 600)] * 8)
 
-    def test_native_ears_hold_initial_pose_for_longest_interval(self):
-        with mock.patch.object(bridge.random, "choice", side_effect=[(0, 10), 72]), \
-             mock.patch.object(bridge.random, "randint", side_effect=[250, 20]):
-            resource, _ = bridge.response_choreography(90, ("on", "off", "002838"))
+    def test_ear_pause_is_bounded_by_six_seconds(self):
+        with mock.patch.object(bridge.random, "randint", return_value=600):
+            resource, _ = bridge.response_choreography(19, ("on", "off", "002838"))
         events, _ = decoded_choreography(resource)
-        self.assertEqual([(timestamp, values) for timestamp, opcode, values in events if opcode == 8],
-                         [(0, (0, 0, 0)), (0, (1, 10, 0))])
+        self.assertEqual([round(timestamp, 2) for timestamp, opcode, _ in events if opcode == 19], [0, 6, 12, 18])
 
     def test_stream_delivers_first_pcm_before_eof_and_ready_precedes_input(self):
         failures = []
@@ -419,7 +516,7 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                 with self.assertRaisesRegex(ValueError, pattern):
                     bridge.stream_play(fixture[0], ("off", "off", "002838"))
 
-    def test_queue_buffers_complete_segments_then_drains_all_pcm_in_order(self):
+    def test_queue_starts_first_complete_segment_then_drains_all_pcm_in_order(self):
         failures = []
         first, second, third = b"\x01\x02\x03\x04", b"\x05\x06", b"\x07\x08\x09\x0a"
         with self.stream_fixture() as (source, writer, marker, ready, _, players, connection):
@@ -437,22 +534,23 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                 writer.write(header[:2])
                 time.sleep(0.03)
                 self.assertFalse(marker.exists(), "A fragmented header cannot start playback")
-                writer.write(header[2:] + first + struct.pack("!I", len(second)) + second[:1])
+                writer.write(header[2:] + first[:1])
                 time.sleep(0.03)
-                self.assertFalse(marker.exists(), "Preroll requires two complete audio segments")
-                writer.write(second[1:])
+                self.assertFalse(marker.exists(), "A partial first segment cannot start playback")
+                writer.write(first[1:] + struct.pack("!I", len(second)) + second[:1])
                 until = time.monotonic() + 2
                 while not marker.exists() and time.monotonic() < until:
                     time.sleep(0.01)
                 self.assertEqual(marker.read_bytes(), first[:2])
-                self.assertTrue(thread.is_alive(), "Queued playback must start before EOF")
+                self.assertTrue(thread.is_alive(), "First segment must play before a second complete segment or EOF")
+                writer.write(second[1:])
                 writer.write(struct.pack("!I", len(third)) + third)
                 received = Path(str(marker) + ".pcm")
                 until = time.monotonic() + 2
                 while (not received.exists() or received.stat().st_size < len(first + second + third)) and time.monotonic() < until:
                     time.sleep(0.01)
                 self.assertEqual(received.read_bytes(), first + second + third,
-                                 "After preroll, one complete segment must play without waiting for another or EOF")
+                                 "Each complete segment must play without waiting for another or EOF")
             finally:
                 writer.close()
                 thread.join(timeout=3)
@@ -526,6 +624,93 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
             with self.assertRaisesRegex(ValueError, "nabd failed"):
                 bridge.stream_play(fixture[0], ("small", "off", "002838"))
 
+    def test_single_session_thinks_then_starts_first_segment_before_turn_finishes(self):
+        failures, commands = [], []
+        thinking_started, release_turn, response_started = threading.Event(), threading.Event(), threading.Event()
+        pcm = b"\x01\x02\x03\x04"
+        with self.stream_fixture() as (source, writer, marker, ready, _, _, connection):
+            def send(data):
+                command = json.loads(data)
+                events, _ = decoded_choreography(command["sequence"][0]["choreography"])
+                commands.append(command)
+                if any(opcode == 8 for _, opcode, _ in events):
+                    response_started.set()
+                else:
+                    thinking_started.set()
+
+            def finish(sock, stream, request_id, deadline, on_event=None):
+                self.assertGreaterEqual(deadline - time.monotonic(), bridge.THINK_CYCLE_TIMEOUT - 0.1)
+                if len(commands) == 1:
+                    self.assertTrue(release_turn.wait(3))
+                else:
+                    time.sleep(0.02)
+
+            def run():
+                try:
+                    bridge.stream_play(source, ("on", "off", "002838"), queued=True, thinking="forward")
+                except BaseException as error:
+                    failures.append(error)
+
+            connection.sendall.side_effect = send
+            with mock.patch.object(bridge, "finish_ears", side_effect=finish), \
+                 mock.patch.object(bridge, "STREAM_PACKET_TIMEOUT", 0.2):
+                thread = threading.Thread(target=run)
+                thread.start()
+                try:
+                    self.assertTrue(ready.wait(2))
+                    self.assertTrue(thinking_started.wait(2))
+                    self.assertFalse(marker.exists())
+                    writer.write(struct.pack("!I", len(pcm)) + pcm)
+                    until = time.monotonic() + 2
+                    while not marker.exists() and time.monotonic() < until:
+                        time.sleep(0.01)
+                    self.assertEqual(marker.read_bytes(), pcm[:2], "Audio must not wait for the in-flight thinking turn")
+                    self.assertFalse(response_started.is_set())
+                    release_turn.set()
+                    # Keep the transport alive during the mandatory pause after the full turn.
+                    for _ in range(35):
+                        if response_started.wait(0.1):
+                            break
+                        writer.write(struct.pack("!I", len(pcm)) + pcm)
+                    self.assertTrue(response_started.is_set())
+                finally:
+                    release_turn.set()
+                    writer.close()
+                    thread.join(timeout=3)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(failures, [])
+            first_events, _ = decoded_choreography(commands[0]["sequence"][0]["choreography"])
+            self.assertEqual([values[1] for _, opcode, values in first_events if opcode == 17], [17, 17])
+
+    def test_single_session_off_has_long_initial_wait_then_normal_packet_timeout(self):
+        failures = []
+        with self.stream_fixture() as (source, writer, marker, ready, _, _, connection):
+            def run():
+                try:
+                    bridge.stream_play(source, ("off", "off", "002838"), queued=True, thinking="backward")
+                except BaseException as error:
+                    failures.append(error)
+
+            with mock.patch.object(bridge, "STREAM_PACKET_TIMEOUT", 0.05), \
+                 mock.patch.object(bridge, "THINK_WALL_TIMEOUT", 0.5):
+                thread = threading.Thread(target=run)
+                thread.start()
+                try:
+                    self.assertTrue(ready.wait(2))
+                    time.sleep(0.1)
+                    self.assertTrue(thread.is_alive(), "The initial AI wait must exceed the ordinary packet timeout")
+                    writer.write(struct.pack("!I", 4) + b"\0" * 4)
+                    thread.join(timeout=2)
+                finally:
+                    writer.close()
+                    thread.join(timeout=3)
+            self.assertTrue(marker.exists())
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(len(failures), 1)
+            self.assertIsInstance(failures[0], TimeoutError)
+            self.assertIn("paquet PCM", str(failures[0]))
+            connection.sendall.assert_not_called()
+
     def test_stream_cleanup_shutdown_failure_keeps_original_audio_error(self):
         worker = mock.Mock()
         worker.is_alive.side_effect = [True, False]
@@ -537,7 +722,7 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                 bridge.stream_play(fixture[0], ("small", "off", "002838"))
         self.assertIn("Fin des effets", stderr.getvalue())
         worker.start.assert_called_once()
-        self.assertEqual(worker.join.call_args_list, [mock.call(timeout=8), mock.call(timeout=1)])
+        self.assertEqual(worker.join.call_args_list, [mock.call(timeout=bridge.THINK_CYCLE_TIMEOUT + 2), mock.call(timeout=1)])
 
     def test_stream_stops_after_current_natural_effect_cycle(self):
         failures, commands, completed = [], [], []
@@ -552,7 +737,7 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                 if len(commands) == 2:
                     two_cycles.set()
 
-            def finish(sock, stream, request_id, deadline):
+            def finish(sock, stream, request_id, deadline, on_event=None):
                 time.sleep(0.02)
                 completed.append(request_id)
 
@@ -611,41 +796,45 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
     def test_play_waits_for_ear_completion_on_success_and_audio_failure(self):
         for failure in (None, ValueError("aplay failed")):
             trace, packets = [], []
-            terminal = {"type": "response", "request_id": "mac-bridge-ears", "status": "canceled" if failure else "ok"}
-            data = json.dumps(terminal).encode() + b"\n"
-            stream = io.BytesIO(data)
+            command_started, audio_done = threading.Event(), threading.Event()
             connection = mock.Mock()
 
             def send(packet):
                 packet = json.loads(packet)
                 packets.append(packet)
                 trace.append(packet["type"])
+                command_started.set()
 
             @bridge.contextlib.contextmanager
             def reservation():
                 try:
-                    yield connection, stream
+                    yield connection, io.BytesIO()
                 finally:
-                    self.assertEqual(stream.tell(), len(data), "Wait for the original terminal response")
                     trace.append("released")
 
             def audio(*args, **kwargs):
+                self.assertTrue(command_started.wait(2))
                 trace.append("aplay")
+                audio_done.set()
                 if failure:
                     raise failure
 
+            def finish(*args, **kwargs):
+                self.assertTrue(audio_done.wait(2))
+                time.sleep(0.02)
+                trace.append("completed")
+
             connection.sendall.side_effect = send
             with mock.patch.object(bridge, "reserve", reservation), \
+                 mock.patch.object(bridge, "finish_ears", side_effect=finish), \
                  mock.patch.object(bridge, "run_audio", side_effect=audio):
                 if failure:
                     with self.assertRaisesRegex(ValueError, "aplay failed"):
                         bridge.play(wav_data(), animate=True, options=("large", "off", "002838"))
                 else:
                     bridge.play(wav_data(), animate=True, options=("large", "off", "002838"))
-            self.assertEqual(trace, ["command", "aplay"] + (["cancel"] if failure else []) + ["released"])
-            self.assertEqual(len(packets), 2 if failure else 1)
-            if failure:
-                self.assertEqual(packets[0]["request_id"], packets[1]["request_id"])
+            self.assertEqual(trace, ["command", "aplay", "completed", "released"])
+            self.assertEqual(len(packets), 1)
             self.assertEqual(set(packets[0]["sequence"][0]), {"choreography"})
 
     def test_plain_playback_sends_no_choreography(self):
@@ -656,6 +845,7 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                  mock.patch.object(bridge, "finish_ears") as cleanup:
                 bridge.play(wav_data(), animate=animated, options=options)
             audio.assert_called_once()
+            self.assertEqual(audio.call_args.args[0][:4], ["aplay", "-q", "-D", bridge.PLAYBACK_DEVICE])
             connection.sendall.assert_not_called()
             cleanup.assert_not_called()
 
@@ -683,7 +873,7 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                 bridge.play(wav_data(), animate=True)
         self.assertIs(raised.exception, failure)
         self.assertIn("nabd timeout", stderr.getvalue())
-        self.assertEqual(json.loads(connection.sendall.call_args.args[0])["type"], "cancel")
+        self.assertEqual(json.loads(connection.sendall.call_args.args[0])["type"], "command")
 
     def test_ear_protocol_errors_and_timeouts_are_reported(self):
         connection = mock.Mock()
@@ -708,6 +898,14 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
         bridge.finish_ears(connection, connection.makefile.return_value, "ears", bridge.time.monotonic() + 5)
         connection.sendall.assert_not_called()
 
+    def test_effect_reader_forwards_button_events_without_consuming_the_response(self):
+        click = {"type": "button_event", "event": "click"}
+        connection = self.fake_connection([click, {"type": "response", "request_id": "ears", "status": "ok"}])
+        on_event = mock.Mock()
+        bridge.finish_ears(connection, connection.makefile.return_value, "ears", bridge.time.monotonic() + 5,
+                           on_event=on_event)
+        on_event.assert_called_once_with(click)
+
     def test_natural_completion_reports_timeout_and_protocol_failure(self):
         connection = mock.Mock()
         with self.assertRaises(TimeoutError):
@@ -719,18 +917,6 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
         with self.assertRaisesRegex(ValueError, "MalformedPacket"):
             bridge.finish_ears(connection, connection.makefile.return_value, "ears", bridge.time.monotonic() + 5)
         connection.sendall.assert_not_called()
-
-    def test_ready_beep_is_short_and_quiet(self):
-        with tempfile.TemporaryDirectory() as directory:
-            filename = Path(directory) / "ready.wav"
-            bridge.write_beep(filename)
-            self.assertEqual(bridge.validate_wav(filename.read_bytes()), 0.1)
-            with wave.open(str(filename), "rb") as audio:
-                self.assertEqual(audio.getparams()[:4], (1, 2, 16000, 1600))
-                samples = struct.unpack("<1600h", audio.readframes(1600))
-            self.assertLessEqual(max(abs(value) for value in samples), 1500)
-            crossings = sum(before <= 0 < after for before, after in zip(samples, samples[1:]))
-            self.assertEqual(crossings, 88)
 
     def test_thinking_ears_rotate_together_oppositely_and_swap_between_requests(self):
         for direction, expected_directions in (("forward", [0, 1]), ("backward", [1, 0])):
@@ -773,7 +959,7 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
             with mock.patch.object(bridge, "reserve", side_effect=reservation), \
                  mock.patch.object(bridge.sys, "stdin", stdin), \
                  mock.patch.object(bridge.sys, "stdout", io.StringIO()) as output, \
-                 mock.patch.object(bridge.select, "select", side_effect=[([], [], []), ([7], [], [])]), \
+                 mock.patch.object(bridge.select, "select", side_effect=[([], [], []), ([7], [], [])]) as select, \
                  mock.patch.object(bridge.os, "read", return_value=b""), \
                  mock.patch.object(bridge, "finish_ears", side_effect=finish):
                 connection.sendall.side_effect = lambda data: trace.append("command")
@@ -781,12 +967,22 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
             self.assertEqual(output.getvalue(), "ready\n")
             self.assertEqual(trace, ["command", "completed", "released"])
             self.assertIs(signal.getsignal(signal.SIGTERM), previous)
+            if mode == "eof":
+                self.assertGreater(select.call_args_list[1].args[3], 2.9, "A pause must follow the completed full turn")
             packet = json.loads(connection.sendall.call_args.args[0])
             self.assertFalse(packet["cancelable"], "Normal stop finishes a full turn instead of canceling")
 
     def test_thinking_stops_before_start_and_preserves_errors(self):
         stdin, connection = mock.Mock(), mock.Mock()
         stdin.fileno.return_value = 7
+        with mock.patch.object(bridge, "FIRST_AUDIO_TIMEOUT", 0), \
+             mock.patch.object(bridge, "reserve", return_value=bridge.contextlib.nullcontext((connection, io.BytesIO()))), \
+             mock.patch.object(bridge.sys, "stdin", stdin), \
+             mock.patch.object(bridge.sys, "stdout", io.StringIO()), \
+             mock.patch.object(bridge.select, "select", return_value=([], [], [])):
+            with self.assertRaisesRegex(TimeoutError, "0 secondes"):
+                bridge.think("forward")
+        connection.sendall.assert_not_called()
         for control, error in ((b"", None), (b"invalid", ValueError)):
             with mock.patch.object(bridge, "reserve", return_value=bridge.contextlib.nullcontext((connection, io.BytesIO()))), \
                  mock.patch.object(bridge.sys, "stdin", stdin), \
@@ -832,7 +1028,7 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                  mock.patch.object(bridge.sys, "stdin", stdin), \
                  mock.patch.object(bridge.sys, "stdout", output), \
                  mock.patch.object(bridge.subprocess, "Popen", side_effect=popen), \
-                 mock.patch.object(bridge, "run_audio"), mock.patch.object(bridge.time, "sleep"), \
+                 mock.patch.object(bridge, "run_audio") as play_signal, mock.patch.object(bridge.time, "sleep"), \
                  mock.patch.object(bridge.select, "select", return_value=(ready, [], [])), \
                  mock.patch.object(bridge.os, "read", side_effect=[b"st", b"op\n"]), \
                  mock.patch.object(bridge, "receive", side_effect=[{"type": "button_event", "event": "up"},
@@ -842,6 +1038,9 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
                         bridge.record()
                 else:
                     bridge.record()
+            self.assertEqual(play_signal.call_args.args[0],
+                             ["mpg123", "--quiet", "--no-control", "-o", "alsa", "-a", bridge.PLAYBACK_DEVICE,
+                              "/opt/pynab/nabd/sounds/asr/listen.mp3"])
             if mode == "limit":
                 capture.send_signal.assert_not_called()
             else:
@@ -952,7 +1151,7 @@ with Path(sys.argv[1] + '.pcm').open('wb') as output:
 
 class RadioTests(unittest.TestCase):
     @bridge.contextlib.contextmanager
-    def fixture(self, network_mode="normal", player_mode="normal", timeout=12):
+    def fixture(self, network_mode="normal", player_mode="normal", timeout=12, ears="on", animation_error=False):
         real_popen, children = bridge.subprocess.Popen, []
         ready = threading.Event()
 
@@ -987,18 +1186,51 @@ while os.read(0, 16384):
 
         def popen(arguments, **kwargs):
             if arguments[0] == "curl":
+                self.assertNotIn("env", kwargs)
                 self.assertIn("--fail", arguments)
                 self.assertIn("--proto-redir", arguments)
                 self.assertEqual(arguments[-1], bridge.RADIO_STREAMS["nova"])
                 command = [sys.executable, "-c", network_script, network_mode]
             else:
-                self.assertEqual(arguments, ["mpg123", "--quiet", "--no-control", "-o", "alsa", "-a", bridge.DEVICE, "-"])
+                self.assertEqual(arguments, ["mpg123", "--quiet", "--no-control", "-o", "alsa", "-a", bridge.PLAYBACK_DEVICE, "-"])
+                self.assertEqual(kwargs["env"], bridge.playback_environment())
                 command = [sys.executable, "-c", player_script, player_mode]
             child = real_popen(command, **kwargs)
             children.append(child)
             return child
 
         connection, events = bridge.socket.socketpair()
+        events.settimeout(0.1)
+        server_stop = threading.Event()
+        commands = self.radio_commands = []
+
+        def respond():
+            buffered = b""
+            while not server_stop.is_set():
+                try:
+                    data = events.recv(4096)
+                except bridge.socket.timeout:
+                    continue
+                except OSError:
+                    return
+                if not data:
+                    return
+                buffered += data
+                while b"\n" in buffered:
+                    line, buffered = buffered.split(b"\n", 1)
+                    packet = json.loads(line)
+                    commands.append(packet)
+                    time.sleep(0.01)
+                    response = {"type": "response", "request_id": packet["request_id"],
+                                "status": "error" if animation_error else "ok"}
+                    if animation_error:
+                        response["class"] = "fixture animation failure"
+                    try:
+                        events.sendall(json.dumps(response).encode() + b"\n")
+                    except OSError:
+                        return
+
+        server = threading.Thread(target=respond)
         source_fd, control_fd = os.pipe()
         errors, output = [], Output()
         with os.fdopen(source_fd, "rb", buffering=0) as source, \
@@ -1012,17 +1244,20 @@ while os.read(0, 16384):
              mock.patch.object(bridge, "RADIO_START_TIMEOUT", timeout):
             def run():
                 try:
-                    bridge.radio("nova")
+                    bridge.radio("nova", ears)
                 except Exception as error:
                     errors.append(error)
 
             worker = threading.Thread(target=run)
+            server.start()
             worker.start()
             try:
                 yield ready, control, events, errors, output, worker
             finally:
                 control.close()
                 worker.join(timeout=4)
+                server_stop.set()
+                server.join(timeout=1)
                 self.assertFalse(worker.is_alive(), "Radio must stop after SSH stdin closes")
                 self.assertTrue(children)
                 for child in children:
@@ -1037,6 +1272,38 @@ while os.read(0, 16384):
             worker.join(timeout=3)
             self.assertEqual(errors, [])
             self.assertEqual(output.getvalue(), "ready\n")
+
+    def test_radio_reuses_paused_response_motion_without_interrupting_audio(self):
+        with self.fixture() as (ready, control, events, errors, output, worker):
+            self.assertTrue(ready.wait(timeout=3))
+            until = time.monotonic() + 2
+            while len(self.radio_commands) < 12 and time.monotonic() < until:
+                time.sleep(0.01)
+            self.assertTrue(worker.is_alive())
+            self.assertGreaterEqual(len(self.radio_commands), 12)
+            decoded = [decoded_choreography(command["sequence"][0]["choreography"])[0]
+                       for command in self.radio_commands[:12]]
+            self.assertTrue(any(opcode == 17 for cycle in decoded for _, opcode, _ in cycle))
+            self.assertFalse(any(opcode == 7 for cycle in decoded for _, opcode, _ in cycle), "Radio only moves ears")
+            control.close()
+            worker.join(timeout=3)
+            self.assertEqual(errors, [])
+
+    def test_radio_honors_disabled_ears_and_still_handles_button(self):
+        with self.fixture(ears="off") as (ready, control, events, errors, output, worker):
+            self.assertTrue(ready.wait(timeout=3))
+            events.sendall(b'{"type":"button_event","event":"click"}\n')
+            worker.join(timeout=3)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(self.radio_commands, [])
+            self.assertEqual(errors, [])
+
+    def test_radio_propagates_animation_failure_and_reaps_audio(self):
+        with self.fixture(animation_error=True) as (ready, control, events, errors, output, worker):
+            worker.join(timeout=3)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(len(errors), 1)
+            self.assertIn("fixture animation failure", str(errors[0]))
 
     def test_radio_stops_on_short_button_click(self):
         with self.fixture() as (ready, control, events, errors, output, worker):

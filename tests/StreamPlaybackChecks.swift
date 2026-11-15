@@ -20,6 +20,10 @@ struct StreamPlaybackChecks {
           stall) printf 'ready\n'; trap '' TERM; exec /bin/sleep 10 ;;
           noise) while :; do printf 'diagnostic fixture\n' >&2; /bin/sleep 0.01; done ;;
           exit) printf 'ready\n'; exit 0 ;;
+          gated)
+            : > "$fixture/connecting"
+            while [ ! -f "$fixture/release" ]; do /bin/sleep 0.01; done
+            ;;
         esac
         printf rea
         /bin/sleep 0.02
@@ -64,6 +68,69 @@ struct StreamPlaybackChecks {
             .split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
         let expectedArguments = try configuration.ssh.arguments(for: configuration.streamPlaybackAction)
         assert(arguments == expectedArguments)
+
+        for direction in ["forward", "backward"] {
+            for name in ["arguments", "first", "connecting", "release"] {
+                try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
+            }
+            try setMode("gated")
+            let thinking = StreamPlayback(configuration: configuration, thinkingDirection: direction,
+                                          executable: executable.path, readyTimeout: 2)
+            let starting = Task { try await thinking.start() }
+            let connecting = folder.appendingPathComponent("connecting")
+            for _ in 0..<100 {
+                if FileManager.default.fileExists(atPath: connecting.path) { break }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            assert(FileManager.default.fileExists(atPath: connecting.path), "La connexion doit commencer avant le premier PCM.")
+            assert(!FileManager.default.fileExists(atPath: first.path))
+            let arguments = try Data(contentsOf: folder.appendingPathComponent("arguments"))
+                .split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
+            let expected = try configuration.ssh.arguments(for: "\(configuration.streamPlaybackAction) \(direction)")
+            assert(arguments == expected)
+            try Data().write(to: folder.appendingPathComponent("release"))
+            try await starting.value
+            assert(!FileManager.default.fileExists(atPath: first.path), "Le signal ready ne doit pas envoyer de PCM.")
+            try thinking.write(pcm)
+            try await thinking.finish()
+            let transmitted = try Data(contentsOf: first) + Data(contentsOf: folder.appendingPathComponent("rest"))
+            assert(transmitted == Data([0, 0, 0, 6]) + pcm)
+        }
+        for name in ["connecting", "release"] {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
+        }
+        try setMode("gated")
+        let canceledStart = StreamPlayback(configuration: configuration, thinkingDirection: "forward",
+                                            executable: executable.path, readyTimeout: 15)
+        let starting = Task { try await canceledStart.start() }
+        for _ in 0..<100 {
+            if FileManager.default.fileExists(atPath: folder.appendingPathComponent("connecting").path) { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        assert(FileManager.default.fileExists(atPath: folder.appendingPathComponent("connecting").path))
+        let startingPID = Int32(try String(contentsOf: folder.appendingPathComponent("pid"), encoding: .utf8))!
+        let canceledAt = ProcessInfo.processInfo.systemUptime
+        starting.cancel()
+        do { try await starting.value; assertionFailure("Une tâche annulée doit interrompre l’attente ready.") }
+        catch {}
+        for _ in 0..<150 {
+            if kill(startingPID, 0) != 0 { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        assert(kill(startingPID, 0) != 0, "L’annulation doit terminer le SSH en cours de connexion.")
+        assert(ProcessInfo.processInfo.systemUptime - canceledAt < 2, "L’annulation ne doit pas attendre le délai ready de 15 secondes.")
+        for name in ["arguments", "pid"] {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
+        }
+        for direction in ["", "sideways", "forward\n", "backward extra", "forward; id"] {
+            let rejected = StreamPlayback(configuration: configuration, thinkingDirection: direction,
+                                          executable: executable.path)
+            do { try await rejected.start(); assertionFailure("Un sens invalide doit échouer avant SSH.") }
+            catch { assert(error.localizedDescription.contains("Sens de réflexion invalide")) }
+            assert(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("arguments").path))
+            assert(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("pid").path))
+            rejected.cancel()
+        }
 
         for mode in ["invalid", "timeout"] {
             try setMode(mode)

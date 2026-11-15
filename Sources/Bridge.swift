@@ -44,6 +44,22 @@ enum Bridge {
         try AppConfiguration.load().ssh.environment()
     }
 
+    static func volume(_ value: Int? = nil, configuration: AppConfiguration = .load(),
+                       executable: String = "/usr/bin/ssh") async throws -> Int {
+        if let value, !(0...100).contains(value) {
+            throw Failure(message: "Le volume doit être compris entre 0 et 100 %.")
+        }
+        let action = value.map { "volume \($0)" } ?? "volume"
+        let data = try await run(executable, configuration.ssh.arguments(for: action),
+                                 timeout: 15, environment: configuration.ssh.environment())
+        struct Response: Decodable { let volume: Int }
+        guard let response = try? JSONDecoder().decode(Response.self, from: data),
+              (0...100).contains(response.volume) else {
+            throw Failure(message: "Réponse du volume du lapin invalide. Vérifie que son relais est à jour.")
+        }
+        return response.volume
+    }
+
     static func diagnostic() async throws -> String {
         let data = try await run("/usr/bin/ssh", sshArguments("diagnostic"))
         let object = try JSONSerialization.jsonObject(with: data)
@@ -305,11 +321,12 @@ enum Bridge {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func speak(_ text: String) async throws {
+    static func speak(_ text: String, playback preparedPlayback: StreamPlayback? = nil,
+                      thinkingSession: RemoteSession? = nil) async throws {
         try Task.checkCancellation()
         let configuration = AppConfiguration.load()
         if configuration.selectedVoiceEngine == .kokoro {
-            let playback = StreamPlayback(configuration: configuration)
+            let playback = preparedPlayback ?? StreamPlayback(configuration: configuration)
             defer { playback.cancel() }
             try await withTaskCancellationHandler(operation: {
                 try await LocalVoice.stream(text) { try playback.write($0) }
@@ -324,6 +341,10 @@ enum Bridge {
         let wav = folder.appendingPathComponent("reply.wav")
         _ = try await run("/usr/bin/say", ["-v", "Thomas", "-o", aiff.path, "-f", "-"], input: Data(text.utf8))
         _ = try await run("/usr/bin/afconvert", ["-f", "WAVE", "-d", "LEI16@22050", "-c", "1", aiff.path, wav.path])
+        if let thinkingSession {
+            thinkingSession.stop()
+            _ = try await thinkingSession.result(timeout: 25)
+        }
         _ = try await run("/usr/bin/ssh", sshArguments(configuration.playbackAction), input: Data(contentsOf: wav), timeout: 110)
     }
 
@@ -356,22 +377,57 @@ enum Bridge {
         return try await transcribe(audio, recognizer: recognizer)
     }
 
-    static func askWhileThinking(_ prompt: String, direction: String) async throws -> String {
-        let session = RemoteSession()
+    static func answerWhileConnecting(connect: @escaping @Sendable () async throws -> Void,
+                                      answer: @escaping @Sendable () async throws -> String) async throws -> String {
+        try await withThrowingTaskGroup(of: String?.self) { group in
+            group.addTask { try await connect(); return nil }
+            group.addTask { try await answer() }
+            var response: String?
+            for try await value in group {
+                if let value { response = value }
+            }
+            try Task.checkCancellation()
+            guard let response else { throw Failure(message: "Réponse de l’IA absente.") }
+            return response
+        }
+    }
+
+    static func askAndSpeakWhileThinking(_ prompt: String, direction: String,
+                                         onAnswer: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        let configuration = AppConfiguration.load()
+        let answer: @Sendable () async throws -> String = {
+            let response = try await ask(prompt)
+            try Task.checkCancellation()
+            await onAnswer(response)
+            return response
+        }
+        if configuration.selectedVoiceEngine == .kokoro {
+            LocalVoice.prewarm()
+            let playback = StreamPlayback(configuration: configuration, thinkingDirection: direction)
+            defer { playback.cancel() }
+            try await withTaskCancellationHandler(operation: {
+                let response = try await answerWhileConnecting(connect: { try await playback.start() }, answer: answer)
+                try await speak(spokenAnswer(response), playback: playback)
+            }, onCancel: { playback.cancel() })
+            return
+        }
+        if configuration.selectedEarMotion == .off {
+            try await speak(spokenAnswer(try await answer()))
+            return
+        }
+        let session = RemoteSession(configuration: configuration)
         defer { session.cancel() }
-        return try await withTaskCancellationHandler(operation: {
-            try await session.start("think \(direction)", waitForReady: true)
-            let answer: String
-            do { answer = try await ask(prompt) }
+        try await withTaskCancellationHandler(operation: {
+            do {
+                let response = try await answerWhileConnecting(
+                    connect: { try await session.start("think \(direction)", waitForReady: true) }, answer: answer)
+                try await speak(spokenAnswer(response), thinkingSession: session)
+            }
             catch {
                 session.stop()
                 _ = try? await session.result(timeout: 25)
                 throw error
             }
-            session.stop()
-            _ = try await session.result(timeout: 25)
-            try Task.checkCancellation()
-            return answer
         }, onCancel: { session.cancel() })
     }
 
@@ -398,10 +454,12 @@ enum Bridge {
 
         func start(_ action: String, waitForReady: Bool = false) async throws {
             try Task.checkCancellation()
-            try await Task.detached(priority: .userInitiated) {
-                try self.startSync(action)
-                if waitForReady { try self.waitReady() }
-            }.value
+            try await withTaskCancellationHandler(operation: {
+                try await Task.detached(priority: .userInitiated) {
+                    try self.startSync(action)
+                    if waitForReady { try self.waitReady() }
+                }.value
+            }, onCancel: { self.cancel() })
         }
 
         private func startSync(_ action: String) throws {
@@ -582,13 +640,50 @@ enum Bridge {
 
     static func run(_ executable: String, _ arguments: [String], input: Data = Data(),
                     timeout: Double = 45, directory: URL? = nil, environment: [String: String]? = nil) async throws -> Data {
-        try await Task.detached(priority: .userInitiated) {
-            try runSync(executable, arguments, input: input, timeout: timeout, directory: directory, environment: environment)
-        }.value
+        try Task.checkCancellation()
+        let cancellation = ProcessCancellation()
+        return try await withTaskCancellationHandler(operation: {
+            try await Task.detached(priority: .userInitiated) {
+                try runSync(executable, arguments, input: input, timeout: timeout, directory: directory,
+                            environment: environment, cancellation: cancellation)
+            }.value
+        }, onCancel: { cancellation.cancel() })
+    }
+
+    private final class ProcessCancellation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var process: Process?
+        private var canceled = false
+
+        func start(_ child: Process) throws {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !canceled else { throw CancellationError() }
+            try child.run()
+            process = child
+        }
+
+        func check() throws {
+            lock.lock()
+            defer { lock.unlock() }
+            if canceled { throw CancellationError() }
+        }
+
+        func cancel() {
+            lock.lock()
+            canceled = true
+            guard let process, process.isRunning else { lock.unlock(); return }
+            process.terminate()
+            lock.unlock()
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            }
+        }
     }
 
     private static func runSync(_ executable: String, _ arguments: [String], input: Data,
-                                timeout: Double, directory: URL?, environment: [String: String]?) throws -> Data {
+                                timeout: Double, directory: URL?, environment: [String: String]?,
+                                cancellation: ProcessCancellation) throws -> Data {
             let folder = try temporaryDirectory()
             defer { try? FileManager.default.removeItem(at: folder) }
             let stdin = folder.appendingPathComponent("stdin")
@@ -614,15 +709,17 @@ enum Bridge {
             process.environment = environment
             let ended = DispatchSemaphore(value: 0)
             process.terminationHandler = { _ in ended.signal() }
-            try process.run()
+            try cancellation.start(process)
             guard ended.wait(timeout: .now() + timeout) == .success else {
                 process.terminate()
                 if ended.wait(timeout: .now() + 2) == .timedOut {
                     kill(process.processIdentifier, SIGKILL)
                     process.waitUntilExit()
                 }
+                try cancellation.check()
                 throw Failure(message: "Délai dépassé pour \(URL(fileURLWithPath: executable).lastPathComponent).")
             }
+            try cancellation.check()
             let output = try Data(contentsOf: stdout)
             let errors = String(decoding: try Data(contentsOf: stderr), as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)

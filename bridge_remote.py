@@ -10,6 +10,7 @@ import math
 import os
 import platform
 import random
+import re
 import select
 import shlex
 import shutil
@@ -27,6 +28,7 @@ from pathlib import Path
 
 
 DEVICE = "plughw:CARD=tagtagtagsound,DEV=0"
+PLAYBACK_DEVICE = "nabaztag_mac"
 MAX_AUDIO = 8 * 1024 * 1024
 MAX_STREAM_AUDIO = 90 * 24000 * 2
 MAX_STREAM_SEGMENTS = 2000
@@ -34,10 +36,9 @@ STREAM_PACKET_TIMEOUT = 30
 STREAM_WALL_TIMEOUT = 150
 MAX_CAPTURE_SECONDS = 90
 THINK_WALL_TIMEOUT = 210
+FIRST_AUDIO_TIMEOUT = THINK_WALL_TIMEOUT + 120  # Keep the voice worker's synthesis allowance after the AI wait.
 THINK_CYCLE_TIMEOUT = 15
 DEFAULT_EFFECTS = ("on", "fixed", "002838")
-# shortcut: native timings pinned to Pynab 9c5dc139's streaming/{1,2,3,4}.chor; recheck when upgrading Pynab.
-STREAMING_CHOREOGRAPHY_TICKS = (70, 45, 72, 63)
 LIGHT_PALETTE = ((56, 8, 32), (64, 28, 0), (8, 56, 24),
                  (8, 24, 64), (40, 12, 56), (0, 40, 56))
 RADIO_STREAMS = {
@@ -53,22 +54,35 @@ def parse_action(command):
     args = shlex.split(command)
     if args[:2] == ["/usr/bin/python3", "/usr/local/lib/nabaztag-mac/bridge_remote.py"]:
         args = args[2:]
+    if args and args[0] == "volume":
+        canonical = " ".join(args)
+        if command in (canonical, "/usr/bin/python3 /usr/local/lib/nabaztag-mac/bridge_remote.py " + canonical):
+            if len(args) == 1:
+                return "volume", None
+            if len(args) == 2 and args[1].isascii() and args[1].isdecimal():
+                value = int(args[1])
+                if 0 <= value <= 100 and str(value) == args[1]:
+                    return "volume", value
     if args in (["diagnostic"], ["play"], ["play-animated"], ["watch-button"], ["record-until-stop"]):
         return args[0], None
     if len(args) == 2 and args[0] == "think" and args[1] in ("forward", "backward"):
         return "think", args[1]
-    if len(args) == 2 and args[0] == "radio" and args[1] in RADIO_STREAMS:
-        return "radio", args[1]
-    if len(args) == 4 and args[0] in ("play-animated", "play-stream", "play-queue"):
-        ears, lights, color = args[1:]
+    if len(args) in (2, 3) and args[0] == "radio" and args[1] in RADIO_STREAMS:
+        ears = args[2] if len(args) == 3 else "on"
+        if ears in ("off", "on"):
+            return "radio", (args[1], ears)
+    if len(args) in (4, 5) and args[0] in ("play-animated", "play-stream", "play-queue"):
+        ears, lights, color = args[1:4]
+        thinking = args[4:] if args[0] in ("play-stream", "play-queue") else []
         if ears in ("off", "on", "small", "large") and lights in ("off", "fixed", "random") and \
-                len(color) == 6 and all(character in "0123456789abcdefABCDEF" for character in color):
-            return args[0], (ears, lights, color)
+                len(color) == 6 and all(character in "0123456789abcdefABCDEF" for character in color) and \
+                (len(args) == 4 or thinking in (["forward"], ["backward"])):
+            return args[0], (ears, lights, color, *thinking)
     if len(args) == 2 and args[0] == "record":
         duration = int(args[1])
         if 1 <= duration <= 15:
             return "record", duration
-    raise ValueError("Commandes autorisées : diagnostic, record N (1..15), record-until-stop, think forward|backward, radio nova|franceinfo|phenix, play, play-animated, play-stream, play-queue, watch-button")
+    raise ValueError("Commandes autorisées : diagnostic, volume [0..100], record N (1..15), record-until-stop, think forward|backward, radio nova|franceinfo|phenix, play, play-animated, play-stream, play-queue, watch-button")
 
 
 def validate_wav(data):
@@ -185,27 +199,41 @@ def reserve():
             yield sock, stream
 
 
+def playback_environment():
+    return dict(os.environ, ALSA_CONFIG_PATH=str(Path(__file__).with_name("alsa.conf")))
+
+
+def volume(value=None):
+    if value is not None and (type(value) is not int or not 0 <= value <= 100):
+        raise ValueError("Le volume doit être un entier de 0 à 100")
+    command = ["amixer", "-c", "tagtagtagsound", "cget" if value is None else "cset", "name=Nabaztag IA"]
+    if value is not None:
+        command.append("{0},{0}".format(value))
+    result = subprocess.run(command, capture_output=True, text=True, timeout=5,
+                            env=dict(os.environ, LC_ALL="C"))
+    if result.returncode:
+        raise ValueError("Volume indisponible : relancer setup-radio.command pour initialiser le contrôle audio. " +
+                         result.stderr.strip())
+    metadata = re.search(r"(?m)^\s*; type=INTEGER,access=[^,\n]+,values=2,min=0,max=100,step=[0-9]+\s*$", result.stdout)
+    levels = re.search(r"(?m)^\s*: values=([0-9]+),([0-9]+)\s*$", result.stdout)
+    if not metadata or not levels:
+        raise ValueError("Réponse du volume du lapin invalide")
+    left, right = (int(level) for level in levels.groups())
+    if left != right or not 0 <= left <= 100 or any(str(int(level)) != level for level in levels.groups()):
+        raise ValueError("Niveaux stéréo du volume du lapin invalides")
+    return left
+
+
 def run_audio(args, timeout):
     result = subprocess.run(args, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.PIPE, timeout=timeout)
+                            stderr=subprocess.PIPE, timeout=timeout, env=playback_environment())
     if result.returncode:
         raise ValueError(args[0] + " : " + result.stderr.decode("utf-8", "replace").strip())
-
-
-def write_beep(filename):
-    with wave.open(str(filename), "wb") as audio:
-        audio.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
-        audio.writeframes(b"".join(
-            struct.pack("<h", round(1500 * math.sin(2 * math.pi * 880 * frame / 16000)))
-            for frame in range(1600)
-        ))
 
 
 def record(duration=None):
     with reserve() as reservation, tempfile.TemporaryDirectory(prefix="nabaztag-mac-") as directory:
         filename = Path(directory) / "recording.wav"
-        beep = Path(directory) / "ready.wav"
-        write_beep(beep)
         limit = MAX_CAPTURE_SECONDS if duration is None else duration
         deadline = time.monotonic() + limit + 5
         capture = subprocess.Popen(
@@ -220,7 +248,8 @@ def record(duration=None):
                 _, error = capture.communicate(timeout=5)
                 raise ValueError("arecord : " + (error.decode("utf-8", "replace").strip()
                                                or "enregistrement terminé avant le signal"))
-            run_audio(["aplay", "-q", "-D", DEVICE, str(beep)],
+            run_audio(["mpg123", "--quiet", "--no-control", "-o", "alsa", "-a", PLAYBACK_DEVICE,
+                       "/opt/pynab/nabd/sounds/asr/listen.mp3"],
                       timeout=min(5, max(0.01, deadline - time.monotonic())))
             stopped = False
             if duration is None:
@@ -267,7 +296,7 @@ def thinking_choreography(direction):
 
 
 def think(direction):
-    deadline = time.monotonic() + THINK_WALL_TIMEOUT
+    deadline = time.monotonic() + FIRST_AUDIO_TIMEOUT
     choreography = thinking_choreography(direction)
     with reserve() as (sock, stream):
         stopping = False
@@ -283,31 +312,42 @@ def think(direction):
             print("ready", flush=True)
             input_fd = sys.stdin.fileno()
             sequence = 0
+            pause_until = 0
             while not stopping:
-                readable, _, _ = select.select([input_fd], [], [], 0)
+                readable, _, _ = select.select([input_fd], [], [],
+                                                max(0, min(deadline, pause_until) - time.monotonic()))
                 if readable:
                     if os.read(input_fd, 64):
                         raise ValueError("La réflexion s’arrête en fermant son entrée")
                     return
+                if stopping:
+                    return
                 if time.monotonic() >= deadline:
-                    raise TimeoutError("La réflexion a dépassé 210 secondes")
+                    raise TimeoutError("La réflexion a dépassé %g secondes" % FIRST_AUDIO_TIMEOUT)
                 request_id = "mac-bridge-thinking-" + str(sequence)
                 send(sock, {"type": "command", "request_id": request_id, "cancelable": False,
                             "sequence": [{"choreography": choreography}]})
                 # Finish the whole turn before releasing the reservation, preserving the resting position.
                 finish_ears(sock, stream, request_id, min(deadline, time.monotonic() + THINK_CYCLE_TIMEOUT))
                 sequence += 1
+                pause_until = time.monotonic() + 3
         finally:
             for signum, handler in handlers.items():
                 signal.signal(signum, handler)
 
 
-def radio(station):
+def radio(station, ears="on"):
     url = RADIO_STREAMS[station]
     if not all(shutil.which(command) for command in ("curl", "mpg123")):
         raise ValueError("Radio indisponible : installer curl et mpg123 sur le lapin, puis réessayer")
-    with reserve() as (sock, stream):
+    with reserve() as (sock, stream), contextlib.ExitStack() as effects:
         children, diagnostics = [], {}
+        animation_errors, effects_started, clicked = [], False, threading.Event()
+
+        def on_event(packet):
+            if packet.get("type") == "button_event" and packet.get("event") == "click":
+                clicked.set()
+
         try:
             network = subprocess.Popen(
                 ["curl", "--disable", "--fail", "--silent", "--show-error", "--location", "--no-buffer",
@@ -318,8 +358,8 @@ def radio(station):
             )
             children.append(network)
             player = subprocess.Popen(
-                ["mpg123", "--quiet", "--no-control", "-o", "alsa", "-a", DEVICE, "-"],
-                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                ["mpg123", "--quiet", "--no-control", "-o", "alsa", "-a", PLAYBACK_DEVICE, "-"],
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=playback_environment(),
             )
             children.append(player)
             output_fd = player.stdin.fileno()
@@ -330,13 +370,20 @@ def radio(station):
             started = last_write = time.monotonic()
             first_write, ready, pending = None, False, b""
             while True:
+                if animation_errors:
+                    raise animation_errors[0]
+                if clicked.is_set():
+                    if not ready:
+                        print("ready", flush=True)
+                    return
                 now = time.monotonic()
                 if not ready and now - started >= RADIO_START_TIMEOUT:
                     raise TimeoutError("La radio n’a pas démarré dans le délai prévu")
                 if pending and now - last_write >= RADIO_STALL_TIMEOUT:
                     raise TimeoutError("Le lecteur radio ne consomme plus l’audio")
                 readable, writable, _ = select.select(
-                    [sock, input_fd] + list(errors) + ([network_fd] if len(pending) < 32768 else []),
+                    ([] if effects_started else [sock]) + [input_fd] + list(errors) +
+                    ([network_fd] if len(pending) < 32768 else []),
                     [output_fd] if pending else [], [], 0.1,
                 )
                 if input_fd in readable:
@@ -380,6 +427,10 @@ def radio(station):
                         last_write = time.monotonic()
                         if first_write is None:
                             first_write = last_write
+                            if ears != "off":
+                                animation_errors = effects.enter_context(response_effects(
+                                    sock, stream, (ears, "off", "002838"), on_event=on_event))
+                                effects_started = True
                 # Data has reached the decoder; give immediate ALSA failures time to surface.
                 if not ready and first_write is not None and time.monotonic() - first_write >= 0.2:
                     print("ready", flush=True)
@@ -411,21 +462,26 @@ def response_choreography(duration, options=DEFAULT_EFFECTS, ear_state=None):
         end = start + frames
         next_frame = state.get("next", 0)
         while next_frame < end:
-            # Same positions, direction, probability and timing as Pynab's play_streaming.
-            if "next" not in state:
-                positions = random.choice(((0, 10), (10, 0)))
-                state["chance"] = 0
-            elif random.randint(0, state["chance"]) == 0:
-                positions = (random.choice((0, 5, 10, 14)), random.choice((0, 5, 10, 14)))
-                state["chance"] = (state["chance"] + 1) % 4
+            movement = state.get("movements", 0)
+            if movement % 3 == 2:
+                direction = (movement // 3) % 2
+                for motor in (0, 1):
+                    events.append((next_frame - start, [20, motor, direction ^ motor]))
+                    events.append((next_frame - start, [17, motor, 17]))
             else:
-                positions = ()
-            for motor, position in enumerate(positions):
-                events.append((next_frame - start, [8, motor, position, 0]))
-            ticks = random.choice(STREAMING_CHOREOGRAPHY_TICKS)
-            tempo = random.randint(160, 250)
-            loops = random.randint(3, 20)
-            next_frame += round(ticks * tempo * loops / 10)
+                previous = state.get("positions")
+                if previous is None:
+                    positions = random.choice(((0, 10), (10, 0)))
+                else:
+                    positions = random.choice(tuple((left, right) for left in (0, 5, 10, 14)
+                                                    for right in (0, 5, 10, 14) if (left, right) != previous))
+                for motor, position in enumerate(positions):
+                    events.append((next_frame - start, [8, motor, position, 0]))
+                state["positions"] = positions
+            # Wait for both motors before the 3–6 second pause; 17 calibrated steps make a full turn.
+            events.append((next_frame - start, [19]))
+            state["movements"] = movement + 1
+            next_frame += random.randint(300, 600)
             state["next"] = next_frame
         state["elapsed"] = end
     rgb = tuple(bytes.fromhex(color))
@@ -440,7 +496,7 @@ def response_choreography(duration, options=DEFAULT_EFFECTS, ear_state=None):
     events.append((frames, [0]))
     choreography = bytearray([0, 1, 1])  # MTL frame duration: 10 ms.
     previous_frame = 0
-    for frame, instruction in sorted(events, key=lambda event: event[0]):
+    for frame, instruction in sorted(events, key=lambda event: (event[0], event[1][0] == 19)):
         delay = frame - previous_frame
         while delay > 255:
             choreography.extend([255, 0])
@@ -451,7 +507,7 @@ def response_choreography(duration, options=DEFAULT_EFFECTS, ear_state=None):
     return resource + base64.b64encode(choreography).decode("ascii"), frames / 100
 
 
-def finish_ears(sock, stream, request_id, deadline, cancel=False):
+def finish_ears(sock, stream, request_id, deadline, cancel=False, on_event=None):
     cancel_packet = {"type": "cancel", "request_id": request_id}
     if cancel:
         send(sock, cancel_packet)
@@ -459,6 +515,8 @@ def finish_ears(sock, stream, request_id, deadline, cancel=False):
     while True:
         packet = receive(sock, stream, deadline)
         if packet.get("type") != "response" or packet.get("request_id") != request_id:
+            if on_event is not None:
+                on_event(packet)
             continue
         if packet.get("status") in ("ok", "canceled"):
             if error:
@@ -474,64 +532,90 @@ def finish_ears(sock, stream, request_id, deadline, cancel=False):
             raise ValueError("Animation des oreilles refusée : " + json.dumps(packet))
 
 
+@contextlib.contextmanager
+def response_effects(sock, stream, options, deadline=float("inf"), on_event=None,
+                     thinking=None, audio_started=None):
+    errors = []
+    if options[:2] == ("off", "off"):
+        yield errors
+        return
+    stop = threading.Event()
+    audio_started = audio_started if audio_started is not None else threading.Event()
+    if thinking is None:
+        audio_started.set()
+
+    def animate():
+        try:
+            ear_state, sequence = {}, 0
+            while not stop.is_set():
+                waiting = thinking is not None and not audio_started.is_set()
+                if waiting and options[0] == "off":
+                    stop.wait(0.1)
+                    continue
+                choreography, duration = (thinking_choreography(thinking), 0) if waiting else \
+                    response_choreography(1.2, options, ear_state)
+                request_id = "mac-bridge-effects-" + str(sequence)
+                # Each finite cycle waits for its motors; the same reader handles radio button events.
+                send(sock, {"type": "command", "request_id": request_id, "cancelable": True,
+                            "sequence": [{"choreography": choreography}]})
+                finish_ears(sock, stream, request_id,
+                            min(deadline + THINK_CYCLE_TIMEOUT, time.monotonic() + duration + THINK_CYCLE_TIMEOUT),
+                            on_event=on_event)
+                sequence += 1
+                if waiting:
+                    stop.wait(3)
+        except Exception as error:
+            errors.append(error)
+            stop.set()
+
+    worker = threading.Thread(target=animate, name="nabaztag-stream-effects", daemon=True)
+    worker.start()
+    failure = None
+    try:
+        yield errors
+    except BaseException as error:
+        failure = error
+        raise
+    finally:
+        stop.set()
+        worker.join(timeout=THINK_CYCLE_TIMEOUT + 2)
+        cleanup_error = None
+        if worker.is_alive():
+            with contextlib.suppress(OSError):
+                sock.shutdown(socket.SHUT_RDWR)
+            worker.join(timeout=1)
+            cleanup_error = TimeoutError("Fin des effets du flux audio trop longue")
+        if worker.is_alive():
+            cleanup_error = RuntimeError("Le thread d’effets n’a pas pu se terminer")
+        cleanup_error = cleanup_error or (errors[0] if errors else None)
+        if cleanup_error is not None:
+            if failure is None:
+                raise cleanup_error
+            if cleanup_error is not failure:
+                print("Arrêt du flux : " + str(cleanup_error), file=sys.stderr)
+
+
 def play(data, animate=False, options=None):
     duration = validate_wav(data)
+    options = (options or DEFAULT_EFFECTS) if animate else ("off", "off", "002838")
     with reserve() as (sock, stream), tempfile.TemporaryDirectory(prefix="nabaztag-mac-") as directory:
         filename = Path(directory) / "reply.wav"
         filename.write_bytes(data)
-        choreography, motion_duration = response_choreography(duration, options or DEFAULT_EFFECTS) \
-            if animate else (None, 0)
-        if choreography is None:
-            run_audio(["aplay", "-q", "-D", DEVICE, str(filename)], timeout=duration + 5)
-            return
-        request_id = "mac-bridge-ears"
-        motion_deadline = time.monotonic() + motion_duration + 5
-        # shortcut: TCP loss leaves this finite sequence running; add nabd disconnect cancellation for strict teardown.
-        send(sock, {"type": "command", "request_id": request_id, "cancelable": True,
-                    "sequence": [{"choreography": choreography}]})
-        failed = False
-        try:
-            run_audio(["aplay", "-q", "-D", DEVICE, str(filename)], timeout=duration + 5)
-        except BaseException:
-            failed = True
-            raise
-        finally:
-            try:
-                # Pynab restores the resting ear positions when the reservation is released.
-                finish_ears(sock, stream, request_id, max(motion_deadline, time.monotonic() + 5), cancel=failed)
-            except Exception as error:
-                if not failed:
-                    raise
-                print("Arrêt des oreilles : " + str(error), file=sys.stderr)
+        with response_effects(sock, stream, options):
+            run_audio(["aplay", "-q", "-D", PLAYBACK_DEVICE, str(filename)], timeout=duration + 5)
 
 
-def stream_play(input_stream, options=DEFAULT_EFFECTS, queued=False):
-    deadline = time.monotonic() + STREAM_WALL_TIMEOUT
-    with reserve() as (sock, stream), tempfile.TemporaryFile() as errors:
+def stream_play(input_stream, options=DEFAULT_EFFECTS, queued=False, thinking=None):
+    wall_timeout = STREAM_WALL_TIMEOUT + (FIRST_AUDIO_TIMEOUT if thinking is not None else 0)
+    deadline = time.monotonic() + wall_timeout
+    with reserve() as (sock, stream), tempfile.TemporaryFile() as errors, contextlib.ExitStack() as effects:
         player = subprocess.Popen(
-            ["aplay", "-q", "-D", DEVICE, "-t", "raw", "-f", "S16_LE", "-r", "24000", "-c", "1"],
-            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=errors, bufsize=0,
+            ["aplay", "-q", "-D", PLAYBACK_DEVICE, "-t", "raw", "-f", "S16_LE", "-r", "24000", "-c", "1"],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=errors, bufsize=0, env=playback_environment(),
         )
-        stop = threading.Event()
-        animation_errors = []
-        worker = None
+        animation_errors, effects_started = [], False
+        audio_started = threading.Event()
         failed = False
-
-        def animate():
-            try:
-                ear_state, sequence = {}, 0
-                while not stop.is_set():
-                    choreography, duration = response_choreography(1.2, options, ear_state)
-                    request_id = "mac-bridge-stream-" + str(sequence)
-                    # Finite cycles also bound residual motion if nabd loses this connection.
-                    send(sock, {"type": "command", "request_id": request_id, "cancelable": True,
-                                "sequence": [{"choreography": choreography}]})
-                    finish_ears(sock, stream, request_id,
-                                min(deadline + 8, time.monotonic() + duration + 5))
-                    sequence += 1
-            except Exception as error:
-                animation_errors.append(error)
-                stop.set()
 
         def check_player():
             if player.poll() is not None:
@@ -541,36 +625,42 @@ def stream_play(input_stream, options=DEFAULT_EFFECTS, queued=False):
             if animation_errors:
                 raise animation_errors[0]
             if time.monotonic() >= deadline:
-                raise TimeoutError("Le flux audio a dépassé 150 secondes")
+                raise TimeoutError("Le flux audio a dépassé %g secondes" % wall_timeout)
 
         try:
             output_fd = player.stdin.fileno()
             os.set_blocking(output_fd, False)
             input_fd = input_stream.fileno()
             print("ready", flush=True)
+            if thinking is not None:
+                animation_errors = effects.enter_context(response_effects(
+                    sock, stream, options, deadline, thinking=thinking, audio_started=audio_started))
+                effects_started = True
             total, segment_count, pending, segments = 0, 0, bytearray(), deque()
             expected = None
             input_done, playing = False, not queued
-            packet_deadline = time.monotonic() + STREAM_PACKET_TIMEOUT
+            packet_deadline = time.monotonic() + (FIRST_AUDIO_TIMEOUT if thinking is not None else STREAM_PACKET_TIMEOUT)
             write_deadline = packet_deadline
             while not input_done or segments:
                 check_player()
                 now = time.monotonic()
                 if not input_done and now >= packet_deadline:
-                    raise TimeoutError("Aucun paquet PCM reçu pendant 30 secondes")
+                    interval = FIRST_AUDIO_TIMEOUT if thinking is not None and not audio_started.is_set() else STREAM_PACKET_TIMEOUT
+                    raise TimeoutError("Aucun paquet PCM reçu pendant %g secondes" % interval)
                 if playing and segments and now >= write_deadline:
                     raise TimeoutError("Le lecteur PCM ne consomme plus le flux")
                 remaining = min(deadline, packet_deadline if not input_done else deadline,
                                 write_deadline if playing and segments else deadline) - now
                 if remaining <= 0:
-                    raise TimeoutError("Le flux audio a dépassé 150 secondes")
+                    raise TimeoutError("Le flux audio a dépassé %g secondes" % wall_timeout)
                 had_output = playing and bool(segments)
                 readable, writable, _ = select.select(
                     [] if input_done else [input_fd], [output_fd] if playing and segments else [], [],
                     min(1, remaining))
                 if readable:
                     data = os.read(input_fd, 16384)
-                    packet_deadline = time.monotonic() + STREAM_PACKET_TIMEOUT
+                    packet_deadline = time.monotonic() + (FIRST_AUDIO_TIMEOUT if thinking is not None and
+                                                          not audio_started.is_set() else STREAM_PACKET_TIMEOUT)
                     if not data:
                         input_done = True
                         if total == 0:
@@ -607,8 +697,7 @@ def stream_play(input_stream, options=DEFAULT_EFFECTS, queued=False):
                             if even:
                                 segments.append(memoryview(bytes(pending[:even])))
                                 del pending[:even]
-                    # Two complete segments give playback a head start; EOF releases short replies.
-                    if not playing and (len(segments) >= 2 or input_done):
+                    if not playing and (segments or input_done):
                         playing = True
                     if not had_output and playing and segments:
                         write_deadline = time.monotonic() + STREAM_PACKET_TIMEOUT
@@ -627,9 +716,12 @@ def stream_play(input_stream, options=DEFAULT_EFFECTS, queued=False):
                     if not segments[0]:
                         segments.popleft()
                     write_deadline = time.monotonic() + STREAM_PACKET_TIMEOUT
-                    if worker is None and options[:2] != ("off", "off"):
-                        worker = threading.Thread(target=animate, name="nabaztag-stream-effects", daemon=True)
-                        worker.start()
+                    if not audio_started.is_set():
+                        audio_started.set()
+                        packet_deadline = time.monotonic() + STREAM_PACKET_TIMEOUT
+                    if not effects_started:
+                        animation_errors = effects.enter_context(response_effects(sock, stream, options, deadline))
+                        effects_started = True
             player.stdin.close()
             player.stdin = None
             result = player.wait(timeout=max(0.01, min(total / 48000 + 5, deadline - time.monotonic())))
@@ -640,7 +732,6 @@ def stream_play(input_stream, options=DEFAULT_EFFECTS, queued=False):
             failed = True
             raise
         finally:
-            stop.set()
             cleanup_error = None
             try:
                 try:
@@ -653,16 +744,6 @@ def stream_play(input_stream, options=DEFAULT_EFFECTS, queued=False):
                     player.wait(timeout=5)
             except Exception as error:
                 cleanup_error = error
-            if worker is not None:
-                worker.join(timeout=8)
-                if worker.is_alive():
-                    with contextlib.suppress(OSError):
-                        sock.shutdown(socket.SHUT_RDWR)
-                    worker.join(timeout=1)
-                    cleanup_error = cleanup_error or TimeoutError("Fin des effets du flux audio trop longue")
-                if worker.is_alive():
-                    cleanup_error = RuntimeError("Le thread d’effets n’a pas pu se terminer")
-            cleanup_error = cleanup_error or (animation_errors[0] if animation_errors else None)
             if cleanup_error is not None:
                 if not failed:
                     raise cleanup_error
@@ -709,19 +790,22 @@ def main():
         action, argument = parse_action(command)
         if action == "diagnostic":
             diagnostic()
+        elif action == "volume":
+            print(json.dumps({"volume": volume(argument)}))
         elif action in ("record", "record-until-stop"):
             record(argument)
         elif action == "think":
             think(argument)
         elif action == "radio":
-            radio(argument)
+            radio(*argument)
         elif action == "watch-button":
             watch_button()
         elif action in ("play-stream", "play-queue"):
+            options, thinking = argument[:3], argument[3] if len(argument) == 4 else None
             if action == "play-queue":
-                stream_play(sys.stdin.buffer, options=argument, queued=True)
+                stream_play(sys.stdin.buffer, options=options, queued=True, thinking=thinking)
             else:
-                stream_play(sys.stdin.buffer, options=argument)
+                stream_play(sys.stdin.buffer, options=options, thinking=thinking)
         else:
             play(sys.stdin.buffer.read(MAX_AUDIO + 1), animate=action == "play-animated", options=argument)
         return 0
