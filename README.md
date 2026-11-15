@@ -1,4 +1,4 @@
-# Nabaztag IA — application Mac 0.13
+# Nabaztag IA — application Mac 0.14
 
 Le lapin fournit le micro et le haut-parleur. Le Mac transcrit la parole localement, demande une réponse au fournisseur choisi, puis fait parler le lapin. ChatGPT via l'abonnement Codex est le choix initial.
 
@@ -6,9 +6,9 @@ Le lapin fournit le micro et le haut-parleur. Le Mac transcrit la parole localem
 
 ## Installation depuis un DMG
 
-**[Télécharger Nabaztag IA 0.13 (.dmg)](https://github.com/guidouil/nabaztag_IA/releases/download/v0.13/Nabaztag-IA-0.13-arm64.dmg)** — préversion pour **Mac Apple Silicon sous macOS 14 ou plus récent**.
+**[Télécharger Nabaztag IA 0.14 (.dmg)](https://github.com/guidouil/nabaztag_IA/releases/download/v0.14/Nabaztag-IA-0.14-arm64.dmg)** — préversion pour **Mac Apple Silicon sous macOS 14 ou plus récent**.
 
-Le DMG contient l'app signée et notarisée par Apple. Voir le [guide d'installation](DISTRIBUTION.md) pour préparer son propre lapin et ses accès IA, et les [notes de version](https://github.com/guidouil/nabaztag_IA/releases/tag/v0.13) pour les prérequis et limites.
+Le DMG contient l'app signée et notarisée par Apple. Voir le [guide d'installation](DISTRIBUTION.md) pour préparer son propre lapin et ses accès IA, et les [notes de version](https://github.com/guidouil/nabaztag_IA/releases/tag/v0.14) pour les prérequis et limites.
 
 ## Lancer
 
@@ -294,7 +294,7 @@ Pour vérifier localement la fabrication du DMG, sans contacter Apple :
 ./release.command --preview
 ```
 
-Cela crée `dist/Nabaztag-IA-0.13-arm64-non-notarise.dmg`, signé seulement pour un usage local. Ce fichier n'est pas destiné à la publication.
+Cela crée `dist/Nabaztag-IA-0.14-arm64-non-notarise.dmg`, signé seulement pour un usage local. Ce fichier n'est pas destiné à la publication.
 
 Pour une version publique, créer dans **Xcode → Settings → Apple Accounts → équipe → Manage Certificates → + → Developer ID Application** un certificat utilisable sur ce Mac. Un certificat **Apple Development** ou **Apple Distribution** ne convient pas. Voir les [instructions Apple](https://developer.apple.com/help/account/certificates/create-developer-id-certificates).
 
@@ -314,10 +314,10 @@ Créer ensuite le DMG à partir de cette app exportée, en adaptant son chemin :
 ./release.command --package "/chemin/export/Nabaztag IA.app"
 ```
 
-Le script vérifie l'identité de l'app, sa version, les signatures, le hardened runtime, le ticket attaché et Gatekeeper avant de copier l'app intacte dans `dist/Nabaztag-IA-0.13-arm64.dmg`. Une erreur conserve un éventuel DMG final précédent. La version du nom de fichier suit automatiquement `Info.plist`.
+Le script vérifie l'identité de l'app, sa version, les signatures, le hardened runtime, le ticket attaché et Gatekeeper avant de copier l'app intacte dans `dist/Nabaztag-IA-0.14-arm64.dmg`. Une erreur conserve un éventuel DMG final précédent. La version du nom de fichier suit automatiquement `Info.plist`.
 
 Dans cette procédure, **l'app est signée et notarisée ; le DMG est une enveloppe non signée**. Apple confirme que cette distribution convient aux macOS modernes lorsque le ticket est attaché à l'app ; aucun second envoi du DMG n'est nécessaire. Voir la [réponse Apple Developer Technical Support](https://developer.apple.com/forums/thread/741219). Ne pas modifier ni re-signer l'app après l'export notarisé.
 
-Après un essai d'installation, de connexion et de voix depuis ce DMG, créer une [Release GitHub](https://github.com/guidouil/nabaztag_IA/releases/new) avec un tag correspondant à la version (par exemple `v0.13`), joindre le **DMG contenant l'app notarisée**, préciser Apple Silicon/macOS 14 minimum et inclure le lien du guide d'installation. Enregistrer un brouillon pour vérifier les fichiers avant publication ; ne pas commiter les binaires, certificats ou clés.
+Après un essai d'installation, de connexion et de voix depuis ce DMG, créer une [Release GitHub](https://github.com/guidouil/nabaztag_IA/releases/new) avec un tag correspondant à la version (par exemple `v0.14`), joindre le **DMG contenant l'app notarisée**, préciser Apple Silicon/macOS 14 minimum et inclure le lien du guide d'installation. Enregistrer un brouillon pour vérifier les fichiers avant publication ; ne pas commiter les binaires, certificats ou clés.
 
 Avant une diffusion publique, clarifier les droits des services et contenus intégrés, notamment les [flux RSS du Monde](https://www.lemonde.fr/le-monde-et-vous/article/2025/07/14/les-flux-rss-du-monde-fr_5498778_3237.html) dont les conditions réservent l'usage à un cadre personnel, non professionnel et non collectif. La gratuité de l'app ne dispense pas de ces conditions.
